@@ -1,0 +1,15 @@
+{
+  "name": "marmotta",
+  "version": "1.0.0",
+  "description": "<div align=\"center\">\r <img style=\"\" src=\"marmotta.png\"/>\r </div>",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "node-api-headers": "^1.5.0"
+  }
+}
