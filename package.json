@@ -1,6 +1,6 @@
 {
   "name": "marmotta",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "<div align=\"center\">\r <img style=\"\" src=\"marmotta.png\"/>\r </div>",
   "main": "index.js",
   "scripts": {
