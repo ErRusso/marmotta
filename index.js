@@ -1,5 +1,5 @@
 'use strict';
 
-const addon = require('./build/hello.node');
+const addon = require('./hello.node');
 
 console.log(addon.hello());
