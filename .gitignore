@@ -1,0 +1,7 @@
+node_modules/
+dist/
+build/
+coverage/
+*.node
+*.tgz
+.DS_Store
