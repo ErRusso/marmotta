@@ -4,27 +4,28 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
-const cli = new URL('../dist/cli.js', import.meta.url);
+const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const zigAvailable = spawnSync('zig', ['version'], { stdio: 'ignore' }).status === 0;
 
 test('mostra l’aiuto senza inizializzare la toolchain', () => {
-  const result = spawnSync(process.execPath, [cli.pathname, '--help'], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /configure/);
   assert.match(result.stdout, /build/);
 });
 
 test('segnala un comando sconosciuto con codice di errore', () => {
-  const result = spawnSync(process.execPath, [cli.pathname, 'unknown-command'], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [cli, 'unknown-command'], { encoding: 'utf8' });
   assert.equal(result.status, 2);
   assert.match(result.stderr, /CLI_COMMAND_ERROR/);
   assert.match(result.stderr, /Comando non riconosciuto/);
 });
 
 test('classifica le opzioni non valide come errori di argomento', () => {
-  const result = spawnSync(process.execPath, [cli.pathname, 'build', '--target'], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [cli, 'build', '--target'], { encoding: 'utf8' });
   assert.equal(result.status, 2);
   assert.match(result.stderr, /CLI_ARGUMENT_ERROR/);
 });
@@ -57,7 +58,7 @@ NAPI_MODULE(hello, Initialize)
     await mkdir(join(directory, 'build'));
     await writeFile(join(directory, 'hello.c'), source);
     const output = join(directory, 'build', 'hello.node');
-    const result = spawnSync(process.execPath, [cli.pathname, 'build', '-C', directory, '-o', output], {
+    const result = spawnSync(process.execPath, [cli, 'build', '-C', directory, '-o', output], {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -69,7 +70,7 @@ NAPI_MODULE(hello, Initialize)
       sources: ['hello.cpp'],
       output: 'build/hello-cpp.node',
     }));
-    const cppResult = spawnSync(process.execPath, [cli.pathname, 'build', '-C', directory], {
+    const cppResult = spawnSync(process.execPath, [cli, 'build', '-C', directory], {
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
     });
@@ -87,7 +88,7 @@ NAPI_MODULE(hello, Initialize)
     ]) {
       const windowsOutput = join(directory, 'build', fileName);
       const windowsResult = spawnSync(process.execPath, [
-        cli.pathname,
+        cli,
         'build',
         '-C',
         directory,

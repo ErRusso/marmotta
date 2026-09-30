@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+
 import { test } from 'node:test';
 import { loadProject } from '../dist/project.js';
 
@@ -25,7 +26,7 @@ test('scopre sorgenti C e C++ e ignora cartelle generate', async () => {
     await writeFile(join(directory, 'build', 'ignored.cpp'), '');
 
     const config = await loadProject(directory);
-    assert.deepEqual(config.sources.map((source) => source.split('/').at(-1)), ['hello.c', 'addon.cc']);
+    assert.deepEqual(config.sources.map((source) => basename(source)), ['hello.c', 'addon.cc']);
     assert.equal(config.output, join(directory, `${basename(directory)}.node`));
   });
 });
