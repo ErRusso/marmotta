@@ -3,12 +3,19 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const zigAvailable = spawnSync('zig', ['version'], { stdio: 'ignore' }).status === 0;
+
+function assertAddonHello(output) {
+  const result = spawnSync(process.execPath, ['-e', `console.log(require(${JSON.stringify(output)}).hello())`], {
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'world');
+}
 
 test('mostra l’aiuto senza inizializzare la toolchain', () => {
   const result = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
@@ -62,8 +69,7 @@ NAPI_MODULE(hello, Initialize)
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const requireFromProject = createRequire(join(directory, 'package.json'));
-    assert.equal(requireFromProject(output).hello(), 'world');
+    assertAddonHello(output);
 
     await writeFile(join(directory, 'hello.cpp'), source);
     await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({
@@ -80,7 +86,7 @@ NAPI_MODULE(hello, Initialize)
       output: (cppResult.stderr || cppResult.stdout).slice(-3000),
     });
     assert.equal(cppResult.status, 0, cppDetails);
-    assert.equal(requireFromProject(join(directory, 'build', 'hello-cpp.node')).hello(), 'world');
+    assertAddonHello(join(directory, 'build', 'hello-cpp.node'));
 
     for (const [target, fileName] of [
       ['x86_64-windows-gnu', 'hello-windows-x64.node'],
