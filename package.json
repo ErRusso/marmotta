@@ -2,13 +2,15 @@
   "name": "marmotta",
   "version": "0.1.0",
   "description": "Build tool for Node.js native addons powered by Zig",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "marmotta": "dist/cli.js"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

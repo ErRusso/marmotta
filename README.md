@@ -37,3 +37,7 @@ Marmotta reads `marmotta.config.json` from the project directory. If the file is
 ```
 
 Node-API headers are provided by the `node-api-headers` package. C and C++ sources are compiled separately and then linked into a single `.node` addon. On Windows, the Node-API import library is generated with `zig dlltool`. Zig and temporary build files are managed under `~/.marmotta`.
+
+## License
+
+Marmotta is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for the full license text.
