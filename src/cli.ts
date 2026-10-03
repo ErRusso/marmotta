@@ -4,26 +4,26 @@ import { build, clean, configure, type BuildOptions } from './build.js';
 import { MarmottaError, normalizeError } from './errors.js';
 import { ensureZig, listZigVersions, removeZigVersion } from './toolchain.js';
 
-const usage = `Marmotta - build tool per addon Node.js con Zig
+const usage = `Marmotta - build tool for Node.js addons with Zig
 
-Uso: marmotta <comando> [opzioni]
+Usage: marmotta <command> [options]
 
-Comandi:
-  configure           verifica progetto e toolchain
-  build               compila l'addon C/C++
-  rebuild             pulisce e ricompila l'addon
-  clean               rimuove l'addon generato
-  install             installa Zig se non è già disponibile
-  list                elenca le versioni Zig gestite da Marmotta
-  remove <versione>   rimuove una versione Zig gestita da Marmotta
+Commands:
+  configure           validate project and toolchain
+  build               compile the C/C++ addon
+  rebuild             clean and rebuild the addon
+  clean               remove the generated addon
+  install             install Zig if it is not already available
+  list                list Zig versions managed by Marmotta
+  remove <version>    remove a Zig version managed by Marmotta
 
-Opzioni:
-  -C, --directory     directory del progetto (predefinita: corrente)
-  -o, --out           percorso del file .node generato
-      --target        target Zig, ad esempio aarch64-macos o x86_64-windows
-      --debug         compila senza ottimizzazioni
-  -h, --help          mostra questo aiuto
-  -v, --version       mostra la versione`;
+Options:
+  -C, --directory     project directory (default: current directory)
+  -o, --out           path to the generated .node file
+      --target        Zig target, e.g. aarch64-macos or x86_64-windows
+      --debug         compile without optimizations
+  -h, --help          show this help
+  -v, --version       show the version`;
 
 type ParsedArgs = { command: string; positional: string[]; options: BuildOptions; help: boolean };
 
@@ -40,14 +40,14 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (token === '-C' || token === '--directory' || token === '-o' || token === '--out' || token === '--target') {
       const value = tokens[index + 1];
       if (!value || value.startsWith('-')) {
-        throw new MarmottaError('CLI_ARGUMENT_ERROR', `Valore mancante per ${token}`, { exitCode: 2 });
+        throw new MarmottaError('CLI_ARGUMENT_ERROR', `Missing value for ${token}`, { exitCode: 2 });
       }
       index += 1;
       if (token === '-C' || token === '--directory') options.directory = resolve(value);
       else if (token === '-o' || token === '--out') options.output = value;
       else options.target = value;
     } else if (token.startsWith('-')) {
-      throw new MarmottaError('CLI_ARGUMENT_ERROR', `Opzione non riconosciuta: ${token}`, { exitCode: 2 });
+      throw new MarmottaError('CLI_ARGUMENT_ERROR', `Unknown option: ${token}`, { exitCode: 2 });
     } else positional.push(token);
   }
 
@@ -81,24 +81,24 @@ async function main(): Promise<void> {
       break;
     case 'install':
       await ensureZig();
-      console.log('Toolchain Zig pronto.');
+      console.log('Zig toolchain is ready.');
       break;
     case 'list': {
       const versions = await listZigVersions();
-      console.log(versions.length > 0 ? versions.join('\n') : 'Nessuna versione Zig installata da Marmotta.');
+      console.log(versions.length > 0 ? versions.join('\n') : 'No Zig versions installed by Marmotta.');
       break;
     }
     case 'remove': {
       const version = parsed.positional[0];
       if (!version) {
-        throw new MarmottaError('CLI_ARGUMENT_ERROR', 'Specifica la versione Zig da rimuovere.', { exitCode: 2 });
+        throw new MarmottaError('CLI_ARGUMENT_ERROR', 'Specify the Zig version to remove.', { exitCode: 2 });
       }
       await removeZigVersion(version);
-      console.log(`Rimossa versione Zig ${version}.`);
+      console.log(`Removed Zig version ${version}.`);
       break;
     }
     default:
-      throw new MarmottaError('CLI_COMMAND_ERROR', `Comando non riconosciuto: ${parsed.command}\n\n${usage}`, {
+      throw new MarmottaError('CLI_COMMAND_ERROR', `Unknown command: ${parsed.command}\n\n${usage}`, {
         exitCode: 2,
       });
   }

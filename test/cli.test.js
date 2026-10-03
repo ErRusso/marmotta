@@ -17,27 +17,27 @@ function assertAddonHello(output) {
   assert.equal(result.stdout.trim(), 'world');
 }
 
-test('mostra l’aiuto senza inizializzare la toolchain', () => {
+test('shows help without initializing the toolchain', () => {
   const result = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /configure/);
   assert.match(result.stdout, /build/);
 });
 
-test('segnala un comando sconosciuto con codice di errore', () => {
+test('reports an unknown command with an error code', () => {
   const result = spawnSync(process.execPath, [cli, 'unknown-command'], { encoding: 'utf8' });
   assert.equal(result.status, 2);
   assert.match(result.stderr, /CLI_COMMAND_ERROR/);
-  assert.match(result.stderr, /Comando non riconosciuto/);
+  assert.match(result.stderr, /Unknown command/);
 });
 
-test('classifica le opzioni non valide come errori di argomento', () => {
+test('classifies invalid options as argument errors', () => {
   const result = spawnSync(process.execPath, [cli, 'build', '--target'], { encoding: 'utf8' });
   assert.equal(result.status, 2);
   assert.match(result.stderr, /CLI_ARGUMENT_ERROR/);
 });
 
-test('compila e carica un addon C Node-API con Zig', { skip: !zigAvailable }, async () => {
+test('builds and loads a C Node-API addon with Zig', { skip: !zigAvailable }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'marmotta-addon-'));
   const source = `#include <assert.h>
 #include <node_api.h>
