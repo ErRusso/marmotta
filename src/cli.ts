@@ -19,7 +19,7 @@ Commands:
 
 Options:
   -C, --directory     project directory (default: current directory)
-  -o, --out           path to the generated .node file
+  -o, --output-dir    directory where <name>.node is generated
       --target        Zig target, e.g. aarch64-macos or x86_64-windows
       --debug         compile without optimizations
   -h, --help          show this help
@@ -37,14 +37,14 @@ function parseArgs(argv: string[]): ParsedArgs {
     const token = tokens[index];
     if (token === '-h' || token === '--help') help = true;
     else if (token === '--debug') options.debug = true;
-    else if (token === '-C' || token === '--directory' || token === '-o' || token === '--out' || token === '--target') {
+    else if (token === '-C' || token === '--directory' || token === '-o' || token === '--output-dir' || token === '--target') {
       const value = tokens[index + 1];
       if (!value || value.startsWith('-')) {
         throw new MarmottaError('CLI_ARGUMENT_ERROR', `Missing value for ${token}`, { exitCode: 2 });
       }
       index += 1;
       if (token === '-C' || token === '--directory') options.directory = resolve(value);
-      else if (token === '-o' || token === '--out') options.output = value;
+      else if (token === '-o' || token === '--output-dir') options.outputDir = value;
       else options.target = value;
     } else if (token.startsWith('-')) {
       throw new MarmottaError('CLI_ARGUMENT_ERROR', `Unknown option: ${token}`, { exitCode: 2 });

@@ -58,14 +58,15 @@ static napi_value Initialize(napi_env env, napi_value exports) {
     return exports;
 }
 
-NAPI_MODULE(hello, Initialize)
+NAPI_MODULE(NODE_GYP_MODULE_NAME, Initialize)
 `;
 
   try {
     await mkdir(join(directory, 'build'));
     await writeFile(join(directory, 'hello.c'), source);
+    await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ name: 'hello' }));
     const output = join(directory, 'build', 'hello.node');
-    const result = spawnSync(process.execPath, [cli, 'build', '-C', directory, '-o', output], {
+    const result = spawnSync(process.execPath, [cli, 'build', '-C', directory, '-o', join(directory, 'build')], {
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -73,8 +74,9 @@ NAPI_MODULE(hello, Initialize)
 
     await writeFile(join(directory, 'hello.cpp'), source);
     await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({
+      name: 'hello-cpp',
       sources: ['hello.cpp'],
-      output: 'build/hello-cpp.node',
+      outputDir: 'build',
     }));
     const cppResult = spawnSync(process.execPath, [cli, 'build', '-C', directory], {
       encoding: 'utf8',
@@ -88,18 +90,19 @@ NAPI_MODULE(hello, Initialize)
     assert.equal(cppResult.status, 0, cppDetails);
     assertAddonHello(join(directory, 'build', 'hello-cpp.node'));
 
-    for (const [target, fileName] of [
-      ['x86_64-windows-gnu', 'hello-windows-x64.node'],
-      ['aarch64-windows-gnu', 'hello-windows-arm64.node'],
+    for (const [target, dirName] of [
+      ['x86_64-windows-gnu', 'windows-x64'],
+      ['aarch64-windows-gnu', 'windows-arm64'],
     ]) {
-      const windowsOutput = join(directory, 'build', fileName);
+      const windowsOutputDir = join(directory, 'build', dirName);
+      const windowsOutput = join(windowsOutputDir, 'hello-cpp.node');
       const windowsResult = spawnSync(process.execPath, [
         cli,
         'build',
         '-C',
         directory,
-        '-o',
-        windowsOutput,
+        '--output-dir',
+        windowsOutputDir,
         '--target',
         target,
       ], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });

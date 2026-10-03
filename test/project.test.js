@@ -15,7 +15,7 @@ async function withProject(run) {
   }
 }
 
-test('scopre sorgenti C e C++ e ignora cartelle generate', async () => {
+test('discovers C and C++ sources and ignores generated directories', async () => {
   await withProject(async (directory) => {
     await mkdir(join(directory, 'src'));
     await mkdir(join(directory, 'node_modules', 'dependency'), { recursive: true });
@@ -27,11 +27,11 @@ test('scopre sorgenti C e C++ e ignora cartelle generate', async () => {
 
     const config = await loadProject(directory);
     assert.deepEqual(config.sources.map((source) => basename(source)), ['hello.c', 'addon.cc']);
-    assert.equal(config.output, join(directory, `${basename(directory)}.node`));
+    assert.equal(config.outputDir, directory);
   });
 });
 
-test('carica le opzioni esplicite e risolve i percorsi relativi', async () => {
+test('loads explicit options and resolves relative paths', async () => {
   await withProject(async (directory) => {
     await writeFile(join(directory, 'addon.cpp'), '');
     await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({
@@ -39,18 +39,18 @@ test('carica le opzioni esplicite e risolve i percorsi relativi', async () => {
       sources: ['addon.cpp'],
       includeDirs: ['include'],
       cxxFlags: ['-std=c++17'],
-      output: 'build/hello.node',
+      outputDir: 'build',
     }));
 
     const config = await loadProject(directory);
     assert.deepEqual(config.sources, [join(directory, 'addon.cpp')]);
     assert.deepEqual(config.includeDirs, [join(directory, 'include')]);
     assert.deepEqual(config.cxxFlags, ['-std=c++17']);
-    assert.equal(config.output, join(directory, 'build', 'hello.node'));
+    assert.equal(config.outputDir, join(directory, 'build'));
   });
 });
 
-test('rifiuta configurazioni con tipi errati e sorgenti mancanti', async () => {
+test('rejects configurations with wrong types and missing sources', async () => {
   await withProject(async (directory) => {
     await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ sources: ['missing.c'] }));
     await assert.rejects(loadProject(directory), (error) =>

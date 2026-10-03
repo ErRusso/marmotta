@@ -43,7 +43,7 @@ For predictable builds, add a `marmotta.config.json` file to the project root. P
   "cFlags": [],
   "cxxFlags": ["-std=c++17"],
   "linkerFlags": [],
-  "output": "build/hello.node"
+  "outputDir": "build"
 }
 ```
 
@@ -57,11 +57,11 @@ Configuration fields:
 | `cFlags` | Additional compiler flags for C files. Defaults to an empty array. |
 | `cxxFlags` | Additional compiler flags for C++ files. Defaults to an empty array. |
 | `linkerFlags` | Additional linker flags. Defaults to an empty array. |
-| `output` | Addon output path. Defaults to `<name>.node` in the project root. |
+| `outputDir` | Directory where the addon is generated, as `<outputDir>/<name>.node`. Relative paths are resolved from the project directory. Defaults to the project root. |
 
 Each array field must be an array of strings. When source discovery is used, Marmotta ignores `.git`, `.marmotta`, `build`, `dist`, and `node_modules` directories. Explicit source paths are resolved relative to the project directory and must exist.
 
-Your source must expose Node-API initialization code, for example using `NAPI_MODULE(...)`. Marmotta supplies the Node-API include path automatically. It compiles C and C++ files with their respective flags and links them into one `.node` file.
+Your source must expose Node-API initialization code, for example using `NAPI_MODULE(...)`. Marmotta supplies the Node-API include path automatically. It also defines the `NODE_GYP_MODULE_NAME` macro for every source file, set to the addon `name` (with characters that are invalid in C identifiers replaced by `_`), so code written for node-gyp such as `NODE_API_MODULE(NODE_GYP_MODULE_NAME, Initialize)` builds unchanged. It compiles C and C++ files with their respective flags and links them into one `.node` file.
 
 For example, save this as `src/hello.c` to export a JavaScript function named `hello`:
 
@@ -102,7 +102,7 @@ Configuration is optional: `build` can be run directly and loads the project con
 npx marmotta build
 ```
 
-If the output is `build/hello.node`, load it from Node.js like any other native addon:
+If `outputDir` is `build` and the addon `name` is `hello`, the output is `build/hello.node`; load it from Node.js like any other native addon:
 
 ```sh
 node -e "console.log(require('./build/hello.node').hello())"
@@ -126,7 +126,7 @@ For a complete usage summary, run `marmotta --help` (or `npx marmotta --help` fo
 | --- | --- |
 | `marmotta configure` | Validate the project configuration and ensure Zig is available. |
 | `marmotta build` | Compile the configured or discovered C/C++ sources into a `.node` addon. |
-| `marmotta rebuild` | Remove the selected output file and build it again. |
+| `marmotta rebuild` | Remove the selected addon file and build it again. |
 | `marmotta clean` | Remove the generated addon file only; it does not remove Zig or other build files. |
 | `marmotta install` | Ensure Zig is available. Uses Zig on `PATH` when present; otherwise downloads it. |
 | `marmotta list` | List Zig versions managed in `~/.marmotta`. A system Zig on `PATH` is not listed. |
@@ -137,7 +137,7 @@ The following options apply to `configure`, `build`, `rebuild`, and `clean` as i
 | Option | Commands | Description |
 | --- | --- | --- |
 | `-C, --directory <path>` | `configure`, `build`, `rebuild`, `clean` | Project directory. Defaults to the current working directory. |
-| `-o, --out <path>` | `build`, `rebuild`, `clean` | Override the configured output path. Relative paths are resolved from the project directory. |
+| `-o, --output-dir <path>` | `build`, `rebuild`, `clean` | Override the configured `outputDir`. Relative paths are resolved from the project directory. |
 | `--target <triple>` | `build`, `rebuild` | Zig target triple for cross-compilation. |
 | `--debug` | `build`, `rebuild` | Build without optimization and include debug information. |
 | `-h, --help` | Any command | Show help. |
