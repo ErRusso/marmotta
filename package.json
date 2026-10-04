@@ -31,7 +31,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "marmotta.jpg"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

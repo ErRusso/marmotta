@@ -1,69 +1,72 @@
 # Marmotta
 
-Marmotta builds Node.js native addons written in C or C++ with [Node-API](https://nodejs.org/api/n-api.html), using the Zig compiler. It manages the compiler toolchain for you and does not require `node-gyp` or CMake.
+<p align="center">
+  <img src="./marmotta.jpg" alt="Marmotta, the native addon build tool" width="384">
+</p>
+
+<p align="center">
+  <a href="https://github.com/napi-bindings/marmotta/actions/workflows/ci.yml">
+    <img src="https://github.com/napi-bindings/marmotta/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI">
+  </a>
+</p>
+
+Marmotta builds Node.js native addons written in C or C++ with [Node-API](https://nodejs.org/api/n-api.html). It uses [Zig](https://ziglang.org/) as the compiler toolchain and can install Zig for you, so projects do not need to configure `node-gyp` or CMake.
+
+## Contents
+
+- [Highlights](#highlights)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Command-line reference](#command-line-reference)
+- [Zig toolchain](#zig-toolchain)
+- [Contributing](#contributing)
+- [License](#license)
+- [Team](#team)
+
+## Highlights
+
+- Build C and C++ Node-API addons into `.node` files.
+- Use the Node-API headers supplied by Marmotta; no separate Node header installation is needed.
+- Reuse node-gyp-oriented sources that use `NODE_GYP_MODULE_NAME`.
+- Build for the host platform or pass a Zig target triple for cross-compilation.
+- Install Zig automatically when a suitable compiler is not already on `PATH`.
 
 ## Requirements
 
 - Node.js 20 or later and npm.
-- For automatic Zig downloads: an x64 or ARM64 host running Linux, macOS, or Windows. On other hosts, provide a usable Zig executable on `PATH`.
-- An internet connection the first time Marmotta needs Zig, unless Zig is already available on your `PATH`.
-- `tar` to extract Zig when Marmotta downloads it. It is available by default on current macOS, Linux, and Windows installations.
+- A C or C++ Node-API addon source file (`.c`, `.cc`, `.cpp`, or `.cxx`).
+- `tar` and internet access when Marmotta needs to download Zig.
 
-Marmotta supplies the Node-API headers through its npm dependency. You do not need to download Node headers or install a separate C/C++ compiler.
+Automatic Zig downloads are supported on x64 and ARM64 Linux, macOS, and Windows hosts. On other host platforms, install Zig separately and make it available on `PATH`.
 
-## Install Marmotta
+## Installation
 
-Install Marmotta globally to use the `marmotta` command from any project:
+Install the unscoped package globally:
 
 ```sh
 npm install --global marmotta
 marmotta --help
 ```
 
-Alternatively, add it to a project and invoke it with `npx`:
+Or add Marmotta to a project and run it with `npx`:
 
 ```sh
 npm install --save-dev marmotta
 npx marmotta --help
 ```
 
-The first command that needs the compiler (such as `install`, `configure`, or `build`) creates a `.marmotta` directory in the user's home directory (for example, `~/.marmotta`, or `%USERPROFILE%\.marmotta` on Windows). Marmotta first uses `zig` if it is available on `PATH`; otherwise, it downloads the latest stable Zig release for the current supported platform into that directory. The archive checksum is verified when the Zig download index provides one. No separate Zig setup is normally needed.
+The same CLI is also published as `@napi-bindings/marmotta`. To install that package instead:
 
-## Prepare a native-addon project
-
-Create or open a Node.js project containing at least one C or C++ source file that implements a Node-API addon. Marmotta recognizes `.c`, `.cc`, `.cpp`, and `.cxx` files.
-
-For predictable builds, add a `marmotta.config.json` file to the project root. Paths in this file are relative to that directory:
-
-```json
-{
-  "name": "hello",
-  "sources": ["src/hello.c"],
-  "includeDirs": ["include"],
-  "cFlags": [],
-  "cxxFlags": ["-std=c++17"],
-  "linkerFlags": [],
-  "outputDir": "build"
-}
+```sh
+npm install --save-dev @napi-bindings/marmotta
+npx marmotta --help
 ```
 
-Configuration fields:
+## Quick start
 
-| Field | Purpose |
-| --- | --- |
-| `name` | Addon name. Defaults to the `name` in `package.json`, or the project directory name if there is no package name. Characters other than letters, numbers, `_`, and `-` are replaced with `_`. |
-| `sources` | C/C++ source-file paths. If omitted or empty, Marmotta recursively discovers source files in the project. |
-| `includeDirs` | Additional header-search directories. Defaults to an empty array. |
-| `cFlags` | Additional compiler flags for C files. Defaults to an empty array. |
-| `cxxFlags` | Additional compiler flags for C++ files. Defaults to an empty array. |
-| `linkerFlags` | Additional linker flags. Defaults to an empty array. |
-| `outputDir` | Directory where the addon is generated, as `<outputDir>/<name>.node`. Relative paths are resolved from the project directory. Defaults to the project root. |
-
-Each array field must be an array of strings. When source discovery is used, Marmotta ignores `.git`, `.marmotta`, `build`, `dist`, and `node_modules` directories. Explicit source paths are resolved relative to the project directory and must exist.
-
-Your source must expose Node-API initialization code, for example using `NAPI_MODULE(...)`. Marmotta supplies the Node-API include path automatically. It also defines the `NODE_GYP_MODULE_NAME` macro for every source file, set to the addon `name` (with characters that are invalid in C identifiers replaced by `_`), so code written for node-gyp such as `NODE_API_MODULE(NODE_GYP_MODULE_NAME, Initialize)` builds unchanged. It compiles C and C++ files with their respective flags and links them into one `.node` file.
-
-For example, save this as `src/hello.c` to export a JavaScript function named `hello`:
+Create a Node.js project with a C or C++ Node-API source file. For example, save this as `src/hello.c`:
 
 ```c
 #include <assert.h>
@@ -85,91 +88,108 @@ static napi_value Initialize(napi_env env, napi_value exports) {
   return exports;
 }
 
-NAPI_MODULE(hello, Initialize)
+NAPI_MODULE(NODE_GYP_MODULE_NAME, Initialize)
 ```
 
-## Build and use the addon
+Create `marmotta.config.json` in the project root:
 
-From the project root, configure the project and toolchain:
-
-```sh
-npx marmotta configure
+```json
+{
+  "name": "hello",
+  "sources": ["src/hello.c"],
+  "outputDir": "build"
+}
 ```
 
-Configuration is optional: `build` can be run directly and loads the project configuration itself. Build the addon:
+Build and load the addon:
 
 ```sh
 npx marmotta build
-```
-
-If `outputDir` is `build` and the addon `name` is `hello`, the output is `build/hello.node`; load it from Node.js like any other native addon:
-
-```sh
 node -e "console.log(require('./build/hello.node').hello())"
 ```
 
-Replace `hello` with a function exported by your addon. A `.node` file is loaded by `require()`; use the path to the output file generated by your build.
+The example prints `world`. `configure` can be run to validate the project and prepare Zig before building, but it is optional; `build` loads the configuration and ensures the toolchain itself.
 
-To compile without optimization and include debug information:
+## Configuration
 
-```sh
-npx marmotta build --debug
-```
+All paths in `marmotta.config.json` are resolved relative to the project directory. The configuration file is optional. Without it, Marmotta uses the package or directory name, discovers source files, and places the addon in the project root.
 
-By default, Marmotta uses `-O2`; `--debug` uses `-O0 -g`.
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | string | `package.json` name, or project directory name | Addon name, also used in the output filename `<name>.node`. Characters other than letters, digits, `_`, and `-` are replaced with `_`. |
+| `sources` | string array | discovered source files | C/C++ sources to compile. An empty or omitted array enables recursive discovery. |
+| `includeDirs` | string array | `[]` | Additional header search directories. |
+| `cFlags` | string array | `[]` | Additional compiler flags for C sources. |
+| `cxxFlags` | string array | `[]` | Additional compiler flags for C++ sources. |
+| `linkerFlags` | string array | `[]` | Additional linker flags. |
+| `outputDir` | string | `.` | Output directory. The generated addon is `<outputDir>/<name>.node`. |
 
-## CLI reference
+Each array field must contain only strings. During source discovery Marmotta ignores `.git`, `.marmotta`, `build`, `dist`, and `node_modules`. Explicit source and include paths must be relative to the project directory or absolute paths; each source must exist and be a file.
 
-For a complete usage summary, run `marmotta --help` (or `npx marmotta --help` for a local installation).
+Marmotta defines `NODE_GYP_MODULE_NAME` for every source file using the configured addon name. Characters that cannot appear in a C identifier are replaced with `_`, and a leading digit is prefixed with `_`. This allows compatible sources to use `NODE_API_MODULE(NODE_GYP_MODULE_NAME, Initialize)` without changing the macro.
+
+## Command-line reference
+
+Run `marmotta --help` or `npx marmotta --help` for the built-in usage summary.
+
+### Commands
 
 | Command | Description |
 | --- | --- |
 | `marmotta configure` | Validate the project configuration and ensure Zig is available. |
 | `marmotta build` | Compile the configured or discovered C/C++ sources into a `.node` addon. |
-| `marmotta rebuild` | Remove the selected addon file and build it again. |
-| `marmotta clean` | Remove the generated addon file only; it does not remove Zig or other build files. |
-| `marmotta install` | Ensure Zig is available. Uses Zig on `PATH` when present; otherwise downloads it. |
-| `marmotta list` | List Zig versions managed in `~/.marmotta`. A system Zig on `PATH` is not listed. |
-| `marmotta remove <version>` | Remove a managed Zig version, for example `marmotta remove 0.14.1`. Use a version shown by `list`. |
+| `marmotta rebuild` | Remove the selected generated addon and build it again. |
+| `marmotta clean` | Remove the generated addon file only. Zig and other build files are left untouched. |
+| `marmotta install` | Ensure a Zig compiler is available, downloading one if needed. |
+| `marmotta list` | List Zig versions managed by Marmotta. |
+| `marmotta remove <version>` | Remove a managed Zig version, for example `marmotta remove 0.14.1`. |
 
-The following options apply to `configure`, `build`, `rebuild`, and `clean` as indicated:
+### Options
 
 | Option | Commands | Description |
 | --- | --- | --- |
 | `-C, --directory <path>` | `configure`, `build`, `rebuild`, `clean` | Project directory. Defaults to the current working directory. |
-| `-o, --output-dir <path>` | `build`, `rebuild`, `clean` | Override the configured `outputDir`. Relative paths are resolved from the project directory. |
-| `--target <triple>` | `build`, `rebuild` | Zig target triple for cross-compilation. |
-| `--debug` | `build`, `rebuild` | Build without optimization and include debug information. |
+| `-o, --output-dir <path>` | `build`, `rebuild`, `clean` | Override `outputDir`. Relative paths are resolved from the project directory. |
+| `--target <triple>` | `build`, `rebuild` | Zig target triple used for cross-compilation. |
+| `--debug` | `build`, `rebuild` | Compile without optimization and include debug information (`-O0 -g` instead of `-O2`). |
 | `-h, --help` | Any command | Show help. |
 | `-v, --version` | Top-level command | Show the Marmotta version. |
 
-For example, build an ARM64 macOS addon from another supported host:
+For example, request a build for ARM64 macOS:
 
 ```sh
 npx marmotta build --target aarch64-macos
 ```
 
-Zig target triples vary by operating system and architecture. Pass the triple supported by Zig for your intended target; Marmotta uses the selected target when compiling and linking.
+Use a target triple supported by Zig for the intended target. Cross-compilation does not run the resulting addon on the host; load it on a compatible target system.
 
-## Zig toolchain management
+## Zig toolchain
 
-Marmotta stores downloaded Zig toolchains and temporary build files under `~/.marmotta`. If a usable Zig executable is found on `PATH`, Marmotta uses it instead of downloading a managed copy. Otherwise, it downloads the latest stable release matching the host platform. The supported automatic-download platforms are x64 and ARM64 Linux, macOS, and Windows.
+Marmotta uses `zig` from `PATH` when available. Otherwise, it downloads the latest stable Zig release for the supported host platform into `.marmotta` in the user's home directory (`~/.marmotta` on Unix-like systems or `%USERPROFILE%\.marmotta` on Windows). If the download index includes a checksum, Marmotta verifies the downloaded archive.
 
-To prepare the compiler before building:
+Prepare Zig in advance:
 
 ```sh
 npx marmotta install
 ```
 
-To inspect managed versions and remove one:
+List and remove toolchain versions managed by Marmotta:
 
 ```sh
 npx marmotta list
 npx marmotta remove 0.14.1
 ```
 
-`remove` only deletes a Zig version stored by Marmotta; it does not uninstall or modify a system Zig found on `PATH`.
+`list` and `remove` operate only on versions managed by Marmotta; they do not list, uninstall, or modify a system Zig executable found on `PATH`.
+
+## Contributing
+
+Bug reports, documentation improvements, and code contributions are welcome. See the [contributing guide](CONTRIBUTING.md) for project contribution and review guidelines.
 
 ## License
 
 Marmotta is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full license text.
+
+## Team
+
+- [Nicola Del Gobbo](https://github.com/NickNaso)
