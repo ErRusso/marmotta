@@ -1,6 +1,14 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
-import { MarmottaError } from './errors.js';
+import {
+  ProjectConfigInvalidError,
+  ProjectConfigReadFailedError,
+  ProjectPackageReadFailedError,
+  ProjectSourceInvalidError,
+  ProjectSourceNotFoundError,
+  ProjectSourceReadFailedError,
+  ProjectSourcesNotFoundError,
+} from './errors.js';
 
 export type ProjectConfig = {
   name: string;
@@ -24,7 +32,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function stringArray(value: unknown, key: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-    throw new MarmottaError('PROJECT_CONFIG_INVALID', `The "${key}" property must be an array of strings.`);
+    throw new ProjectConfigInvalidError(`The "${key}" property must be an array of strings.`);
   }
   return value;
 }
@@ -59,9 +67,7 @@ async function projectName(directory: string): Promise<string> {
     }
   } catch (error) {
     if (errorCode(error) !== 'ENOENT') {
-      throw new MarmottaError('PROJECT_PACKAGE_READ_FAILED', `Unable to read package.json in ${directory}.`, {
-        cause: error,
-      });
+      throw new ProjectPackageReadFailedError(directory, { cause: error });
     }
   }
   return basename(directory).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -75,7 +81,7 @@ export async function loadProject(directory: string): Promise<ProjectConfig> {
     configContents = await readFile(configPath, 'utf8');
   } catch (error) {
     if (errorCode(error) !== 'ENOENT') {
-      throw new MarmottaError('PROJECT_CONFIG_READ_FAILED', `Unable to read ${configPath}.`, { cause: error });
+      throw new ProjectConfigReadFailedError(configPath, { cause: error });
     }
   }
   if (configContents !== undefined) {
@@ -83,10 +89,10 @@ export async function loadProject(directory: string): Promise<ProjectConfig> {
     try {
       parsed = JSON.parse(configContents);
     } catch (error) {
-      throw new MarmottaError('PROJECT_CONFIG_INVALID', `Invalid JSON in ${configPath}.`, { cause: error });
+      throw new ProjectConfigInvalidError(`Invalid JSON in ${configPath}.`, { cause: error });
     }
     if (!isRecord(parsed)) {
-      throw new MarmottaError('PROJECT_CONFIG_INVALID', 'La configurazione deve essere un oggetto JSON.');
+      throw new ProjectConfigInvalidError('The configuration must be a JSON object.');
     }
     input = parsed;
   }
@@ -100,7 +106,7 @@ export async function loadProject(directory: string): Promise<ProjectConfig> {
     ? input.name.replace(/[^a-zA-Z0-9_-]/g, '_')
     : await projectName(directory);
   if (input.outputDir !== undefined && (typeof input.outputDir !== 'string' || input.outputDir.length === 0)) {
-    throw new MarmottaError('PROJECT_CONFIG_INVALID', 'The "outputDir" property must be a non-empty string.');
+    throw new ProjectConfigInvalidError('The "outputDir" property must be a non-empty string.');
   }
   const outputDir = typeof input.outputDir === 'string' ? input.outputDir : '.';
   let discoveredSources: string[];
@@ -109,13 +115,10 @@ export async function loadProject(directory: string): Promise<ProjectConfig> {
       ? sources.map((source) => resolve(directory, source))
       : await findSources(directory);
   } catch (error) {
-    throw new MarmottaError('PROJECT_SOURCE_READ_FAILED', `Unable to search for sources in ${directory}.`, { cause: error });
+    throw new ProjectSourceReadFailedError(`Unable to search for sources in ${directory}.`, { cause: error });
   }
   if (discoveredSources.length === 0) {
-    throw new MarmottaError(
-      'PROJECT_SOURCES_NOT_FOUND',
-      'No C/C++ sources found. Add "sources" to marmotta.config.json.',
-    );
+    throw new ProjectSourcesNotFoundError();
   }
 
   for (const source of discoveredSources) {
@@ -123,16 +126,10 @@ export async function loadProject(directory: string): Promise<ProjectConfig> {
     try {
       sourceStats = await stat(source);
     } catch (error) {
-      if (errorCode(error) === 'ENOENT') {
-        throw new MarmottaError('PROJECT_SOURCE_NOT_FOUND', `Source not found: ${source}`, { cause: error });
-      }
-      throw new MarmottaError('PROJECT_SOURCE_READ_FAILED', `Unable to access source: ${source}`, {
-        cause: error,
-      });
+      if (errorCode(error) === 'ENOENT') throw new ProjectSourceNotFoundError(source, { cause: error });
+      throw new ProjectSourceReadFailedError(`Unable to access source: ${source}`, { cause: error });
     }
-    if (!sourceStats.isFile()) {
-      throw new MarmottaError('PROJECT_SOURCE_INVALID', `Source is not a file: ${source}`);
-    }
+    if (!sourceStats.isFile()) throw new ProjectSourceInvalidError(source);
   }
 
   return {

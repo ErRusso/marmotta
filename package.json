@@ -1,7 +1,28 @@
 {
   "name": "marmotta",
   "version": "0.2.0",
-  "description": "Build tool for Node.js native addons powered by Zig",
+  "description": "Marmotta - a Node.js native addon build tool",
+  "author": {
+    "name": "Nicola Del Gobbo",
+    "email": "nicoladelgobbo@gmail.com",
+    "url": "https://github.com/NickNaso"
+  },
+  "keywords": [
+    "native",
+    "addon",
+    "module",
+    "c",
+    "c++",
+    "bindings",
+    "zig",
+    "bindings",
+    "build",
+    "buildtools",
+    "n-api",
+    "napi",
+    "node-api",
+    "node-addon-api"
+  ],
   "license": "Apache-2.0",
   "type": "module",
   "bin": {

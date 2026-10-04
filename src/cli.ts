@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
 import { build, clean, configure, type BuildOptions } from './build.js';
-import { MarmottaError, normalizeError } from './errors.js';
+import { CliArgumentError, CliCommandError, normalizeError } from './errors.js';
 import { ensureZig, listZigVersions, removeZigVersion } from './toolchain.js';
 
 const usage = `Marmotta - build tool for Node.js addons with Zig
@@ -40,14 +40,14 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (token === '-C' || token === '--directory' || token === '-o' || token === '--output-dir' || token === '--target') {
       const value = tokens[index + 1];
       if (!value || value.startsWith('-')) {
-        throw new MarmottaError('CLI_ARGUMENT_ERROR', `Missing value for ${token}`, { exitCode: 2 });
+        throw new CliArgumentError(`Missing value for ${token}`);
       }
       index += 1;
       if (token === '-C' || token === '--directory') options.directory = resolve(value);
       else if (token === '-o' || token === '--output-dir') options.outputDir = value;
       else options.target = value;
     } else if (token.startsWith('-')) {
-      throw new MarmottaError('CLI_ARGUMENT_ERROR', `Unknown option: ${token}`, { exitCode: 2 });
+      throw new CliArgumentError(`Unknown option: ${token}`);
     } else positional.push(token);
   }
 
@@ -91,16 +91,14 @@ async function main(): Promise<void> {
     case 'remove': {
       const version = parsed.positional[0];
       if (!version) {
-        throw new MarmottaError('CLI_ARGUMENT_ERROR', 'Specify the Zig version to remove.', { exitCode: 2 });
+        throw new CliArgumentError('Specify the Zig version to remove.');
       }
       await removeZigVersion(version);
       console.log(`Removed Zig version ${version}.`);
       break;
     }
     default:
-      throw new MarmottaError('CLI_COMMAND_ERROR', `Unknown command: ${parsed.command}\n\n${usage}`, {
-        exitCode: 2,
-      });
+      throw new CliCommandError(`Unknown command: ${parsed.command}\n\n${usage}`);
   }
 }
 
