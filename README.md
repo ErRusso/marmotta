@@ -1,7 +1,7 @@
 # Marmotta
 
 <p align="center">
-  <img src="./marmotta.jpg" alt="Marmotta, the native addon build tool" width="384">
+  <img src="https://raw.githubusercontent.com/napi-bindings/marmotta/main/marmotta.jpg" alt="Marmotta, the native addon build tool" width="384">
 </p>
 
 <p align="center">
