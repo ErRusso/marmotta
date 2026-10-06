@@ -1,6 +1,7 @@
+import { createRequire } from 'node:module';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { basename, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import {
   ProjectConfigInvalidError,
   ProjectConfigLoadFailedError,
@@ -52,6 +53,11 @@ function errorCode(error: unknown): string | undefined {
   return typeof error.code === 'string' ? error.code : undefined;
 }
 
+function configLoadFailed(configPath: string, cause: unknown): InstanceType<typeof ProjectConfigLoadFailedError> {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return new ProjectConfigLoadFailedError(configPath, message, { cause });
+}
+
 async function findSources(directory: string): Promise<string[]> {
   const found: string[] = [];
   const visit = async (current: string): Promise<void> => {
@@ -83,6 +89,27 @@ async function projectName(directory: string): Promise<string> {
   return basename(directory).replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+async function isEsmConfig(configPath: string): Promise<boolean> {
+  let current = dirname(configPath);
+  while (true) {
+    let contents: string | undefined;
+    try {
+      contents = await readFile(join(current, 'package.json'), 'utf8');
+    } catch (error) {
+      if (errorCode(error) !== 'ENOENT') {
+        throw error;
+      }
+    }
+    if (contents !== undefined) {
+      const packageJson: unknown = JSON.parse(contents);
+      return isRecord(packageJson) && packageJson.type === 'module';
+    }
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
 async function loadConfigInput(
   directory: string,
   context: ProjectConfigContext,
@@ -103,19 +130,26 @@ async function loadConfigInput(
     }
     let exported: unknown;
     try {
-      const configUrl = pathToFileURL(jsConfigPath);
-      configUrl.searchParams.set('marmotta-load', String(++configLoadId));
-      const configModule = await import(configUrl.href) as { default?: unknown };
-      exported = configModule.default;
+      if (await isEsmConfig(jsConfigPath)) {
+        const configUrl = pathToFileURL(jsConfigPath);
+        configUrl.searchParams.set('marmotta-load', String(++configLoadId));
+        const configModule = await import(configUrl.href) as { default?: unknown };
+        exported = configModule.default;
+      } else {
+        const require = createRequire(jsConfigPath);
+        const resolvedConfigPath = require.resolve(jsConfigPath);
+        delete require.cache[resolvedConfigPath];
+        exported = require(resolvedConfigPath) as unknown;
+      }
     } catch (error) {
-      throw new ProjectConfigLoadFailedError(jsConfigPath, { cause: error });
+      throw configLoadFailed(jsConfigPath, error);
     }
 
     let config: unknown;
     try {
       config = typeof exported === 'function' ? await exported(context) : exported;
     } catch (error) {
-      throw new ProjectConfigLoadFailedError(jsConfigPath, { cause: error });
+      throw configLoadFailed(jsConfigPath, error);
     }
     if (!isRecord(config)) {
       throw new ProjectConfigInvalidError(

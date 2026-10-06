@@ -79,6 +79,46 @@ test('prefers a JavaScript config and evaluates it with the build context', asyn
   });
 });
 
+test('reloads a changed CommonJS JavaScript config', async () => {
+  await withProject(async (directory) => {
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ type: 'commonjs' }));
+    await writeFile(join(directory, 'addon.c'), '');
+    const configPath = join(directory, 'marmotta.config.js');
+    await writeFile(configPath, "module.exports = { name: 'first-build', sources: ['addon.c'] };\n");
+
+    const firstConfig = await loadProject(directory);
+    assert.equal(firstConfig.name, 'first-build');
+
+    await writeFile(configPath, "module.exports = { name: 'updated-build', sources: ['addon.c'] };\n");
+    const updatedConfig = await loadProject(directory);
+    assert.equal(updatedConfig.name, 'updated-build');
+  });
+});
+
+test('includes JavaScript configuration load causes in the error message', async () => {
+  await withProject(async (directory) => {
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ type: 'module' }));
+    const configPath = join(directory, 'marmotta.config.js');
+
+    await writeFile(configPath, 'export default {');
+    await assert.rejects(loadProject(directory), (error) =>
+      error instanceof Error
+      && 'code' in error
+      && error.code === 'PROJECT_CONFIG_LOAD_FAILED'
+      && error.message.includes('Unexpected end')
+      && error.cause instanceof SyntaxError);
+
+    await writeFile(configPath, "throw new Error('config runtime failure');\n");
+    await assert.rejects(loadProject(directory), (error) =>
+      error instanceof Error
+      && 'code' in error
+      && error.code === 'PROJECT_CONFIG_LOAD_FAILED'
+      && error.message.includes('config runtime failure')
+      && error.cause instanceof Error
+      && error.cause.message === 'config runtime failure');
+  });
+});
+
 test('rejects configurations with wrong types and missing sources', async () => {
   await withProject(async (directory) => {
     await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ sources: ['missing.c'] }));

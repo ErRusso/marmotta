@@ -16,7 +16,7 @@ export const ProjectConfigReadFailedError = createError(
 );
 export const ProjectConfigLoadFailedError = createError(
   'PROJECT_CONFIG_LOAD_FAILED',
-  'Unable to load %s.',
+  'Unable to load %s: %s.',
   FAILURE_EXIT_CODE,
 );
 export const ProjectPackageReadFailedError = createError(
