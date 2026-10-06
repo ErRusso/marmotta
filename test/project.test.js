@@ -40,6 +40,7 @@ test('loads explicit options and resolves relative paths', async () => {
       includeDirs: ['include'],
       cxxFlags: ['-std=c++17'],
       outputDir: 'build',
+      zigVersion: '0.14.1',
     }));
 
     const config = await loadProject(directory);
@@ -47,6 +48,7 @@ test('loads explicit options and resolves relative paths', async () => {
     assert.deepEqual(config.includeDirs, [join(directory, 'include')]);
     assert.deepEqual(config.cxxFlags, ['-std=c++17']);
     assert.equal(config.outputDir, join(directory, 'build'));
+    assert.equal(config.zigVersion, '0.14.1');
   });
 });
 
@@ -60,6 +62,7 @@ test('prefers a JavaScript config and evaluates it with the build context', asyn
         name: target ? 'cross-build' : 'host-build',
         sources: ['addon.c'],
         cFlags: [platform, arch],
+        zigVersion: '0.14.1',
       });
     `);
 
@@ -67,6 +70,7 @@ test('prefers a JavaScript config and evaluates it with the build context', asyn
     assert.equal(config.name, 'cross-build');
     assert.deepEqual(config.sources, [join(directory, 'addon.c')]);
     assert.deepEqual(config.cFlags, [process.platform, process.arch]);
+    assert.equal(config.zigVersion, '0.14.1');
 
     await writeFile(join(directory, 'marmotta.config.js'), `
       export default {
@@ -131,6 +135,10 @@ test('rejects configurations with wrong types and missing sources', async () => 
       && error.cause.code === 'ENOENT');
 
     await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ cFlags: '-Wall' }));
+    await assert.rejects(loadProject(directory), (error) =>
+      error instanceof Error && 'code' in error && error.code === 'PROJECT_CONFIG_INVALID');
+
+    await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ zigVersion: '0.14' }));
     await assert.rejects(loadProject(directory), (error) =>
       error instanceof Error && 'code' in error && error.code === 'PROJECT_CONFIG_INVALID');
   });

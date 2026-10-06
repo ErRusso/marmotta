@@ -60,12 +60,12 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-async function findLocalZig(): Promise<ZigCommand | undefined> {
+async function findLocalZig(version?: string): Promise<ZigCommand | undefined> {
   try {
     const versions = await readdir(zigRoot, { withFileTypes: true });
-    for (const version of versions) {
-      if (!version.isDirectory()) continue;
-      const versionDir = join(zigRoot, version.name);
+    for (const entry of versions) {
+      if (!entry.isDirectory() || (version !== undefined && entry.name !== version)) continue;
+      const versionDir = join(zigRoot, entry.name);
       const entries = await readdir(versionDir, { withFileTypes: true });
       for (const entry of entries) {
         const candidateDir = entry.isDirectory() ? join(versionDir, entry.name) : versionDir;
@@ -107,7 +107,7 @@ export async function ensureMarmottaRoot(): Promise<void> {
   }
 }
 
-async function downloadAndInstallZig(): Promise<ZigCommand> {
+async function downloadAndInstallZig(requestedVersion?: string): Promise<ZigCommand> {
   let response: Response;
   try {
     response = await fetch(indexUrl);
@@ -123,14 +123,17 @@ async function downloadAndInstallZig(): Promise<ZigCommand> {
   }
 
   const versions = Object.keys(index).filter((version) => /^\d+\.\d+\.\d+$/.test(version)).sort(compareVersions);
-  const version = versions.at(-1);
+  const version = requestedVersion ?? versions.at(-1);
   if (!version) throw new ZigInstallFailedError('No stable Zig release found.');
+  if (!versions.includes(version)) {
+    throw new ZigInstallFailedError(`Zig ${version} is not available as a stable release.`);
+  }
   const release = (index as Record<string, unknown>)[version];
   const artifact = typeof release === 'object' && release !== null
     ? (release as Record<string, ZigArtifact>)[platformKey()]
     : undefined;
   if (typeof artifact?.tarball !== 'string') {
-    throw new ZigInstallFailedError(`No Zig package available for ${platformKey()}.`);
+    throw new ZigInstallFailedError(`No Zig ${version} package available for ${platformKey()}.`);
   }
 
   let archiveResponse: Response;
@@ -171,17 +174,24 @@ async function downloadAndInstallZig(): Promise<ZigCommand> {
   }
 }
 
-async function installZig(): Promise<ZigCommand> {
+async function installZig(version?: string): Promise<ZigCommand> {
   try {
-    return await downloadAndInstallZig();
+    return await downloadAndInstallZig(version);
   } catch (error) {
     if (isMarmottaError(error)) throw error;
     throw new ZigInstallFailedError('Zig installation failed.', { cause: error });
   }
 }
 
-export async function ensureZig(): Promise<ZigCommand> {
+export async function ensureZig(version?: string): Promise<ZigCommand> {
+  if (version !== undefined) {
+    if (!/^\d+\.\d+\.\d+$/.test(version)) throw new ZigVersionInvalidError(version);
+  }
   await ensureMarmottaRoot();
+  if (version !== undefined) {
+    const local = await findLocalZig(version);
+    return local ?? installZig(version);
+  }
   const system = systemZig();
   if (system) return system;
   const local = await findLocalZig();
