@@ -1,6 +1,6 @@
 {
   "name": "marmotta",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Marmotta - a Node.js native addon build tool",
   "author": {
     "name": "Nicola Del Gobbo",

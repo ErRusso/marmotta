@@ -61,7 +61,7 @@ async function main(): Promise<void> {
     return;
   }
   if (parsed.command === '--version' || parsed.command === '-v') {
-    console.log('marmotta 0.4.2');
+    console.log('marmotta 0.5.0');
     return;
   }
 
