@@ -98,18 +98,18 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
 }
 
 export async function configure(options: BuildOptions): Promise<ProjectConfig> {
-  const config = await loadProject(options.directory);
+  const config = await loadProject(options.directory, { target: options.target });
   await ensureZig();
   console.log(`Configuration ready: ${config.name} (${config.sources.length} sources)`);
   return config;
 }
 
 export async function build(options: BuildOptions): Promise<void> {
-  const config = await loadProject(options.directory);
+  const config = await loadProject(options.directory, { target: options.target });
   await compile(config, options, false);
 }
 
 export async function clean(options: BuildOptions): Promise<void> {
-  const config = await loadProject(options.directory);
+  const config = await loadProject(options.directory, { target: options.target });
   await compile(config, options, true);
 }

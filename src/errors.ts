@@ -14,6 +14,11 @@ export const ProjectConfigReadFailedError = createError(
   'Unable to read %s.',
   FAILURE_EXIT_CODE,
 );
+export const ProjectConfigLoadFailedError = createError(
+  'PROJECT_CONFIG_LOAD_FAILED',
+  'Unable to load %s: %s.',
+  FAILURE_EXIT_CODE,
+);
 export const ProjectPackageReadFailedError = createError(
   'PROJECT_PACKAGE_READ_FAILED',
   'Unable to read package.json in %s.',
