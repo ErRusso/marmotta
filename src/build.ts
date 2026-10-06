@@ -43,7 +43,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
     return;
   }
 
-  const zig = await ensureZig();
+  const zig = await ensureZig(config.zigVersion);
   await ensureMarmottaRoot();
   const temporaryDir = await mkdtemp(join(marmottaRoot, 'build-'));
   const hasCpp = config.sources.some(isCpp);
@@ -99,7 +99,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
 
 export async function configure(options: BuildOptions): Promise<ProjectConfig> {
   const config = await loadProject(options.directory, { target: options.target });
-  await ensureZig();
+  await ensureZig(config.zigVersion);
   console.log(`Configuration ready: ${config.name} (${config.sources.length} sources)`);
   return config;
 }

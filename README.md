@@ -138,6 +138,7 @@ For `.js` files, use the module format selected by your project's `package.json`
 | `cxxFlags` | string array | `[]` | Additional compiler flags for C++ sources. |
 | `linkerFlags` | string array | `[]` | Additional linker flags. |
 | `outputDir` | string | `.` | Output directory. The generated addon is `<outputDir>/<name>.node`. |
+| `zigVersion` | string | Zig from `PATH`, else local/latest stable | Pin an exact stable Zig version, for example `0.14.1`. When set, Marmotta uses or downloads this managed version instead of using Zig from `PATH`. |
 
 Each array field must contain only strings. During source discovery Marmotta ignores `.git`, `.marmotta`, `build`, `dist`, and `node_modules`. Explicit source and include paths must be relative to the project directory or absolute paths; each source must exist and be a file.
 
@@ -180,7 +181,7 @@ Use a target triple supported by Zig for the intended target. Cross-compilation 
 
 ## Zig toolchain
 
-Marmotta uses `zig` from `PATH` when available. Otherwise, it downloads the latest stable Zig release for the supported host platform into `.marmotta` in the user's home directory (`~/.marmotta` on Unix-like systems or `%USERPROFILE%\.marmotta` on Windows). If the download index includes a checksum, Marmotta verifies the downloaded archive.
+Without a `zigVersion` pin, Marmotta uses `zig` from `PATH` when available, then a locally managed version, and otherwise downloads the latest stable Zig release for the supported host platform into `.marmotta` in the user's home directory (`~/.marmotta` on Unix-like systems or `%USERPROFILE%\.marmotta`). If `zigVersion` is set, Marmotta ignores `PATH` and selects that exact managed version, downloading it if necessary. If the pinned version is not available for the host platform, the command fails instead of falling back to another version. If the download index includes a checksum, Marmotta verifies the downloaded archive.
 
 Prepare Zig in advance:
 

@@ -21,6 +21,7 @@ export type ProjectConfig = {
   cxxFlags: string[];
   linkerFlags: string[];
   outputDir: string;
+  zigVersion?: string;
 };
 
 export type ProjectConfigContext = {
@@ -199,6 +200,10 @@ export async function loadProject(
   const cFlags = stringArray(input.cFlags, 'cFlags');
   const cxxFlags = stringArray(input.cxxFlags, 'cxxFlags');
   const linkerFlags = stringArray(input.linkerFlags, 'linkerFlags');
+  if (input.zigVersion !== undefined
+    && (typeof input.zigVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(input.zigVersion))) {
+    throw new ProjectConfigInvalidError('The "zigVersion" property must be an exact stable version (for example "0.14.1").');
+  }
   const name = typeof input.name === 'string' && input.name.length > 0
     ? input.name.replace(/[^a-zA-Z0-9_-]/g, '_')
     : await projectName(directory);
@@ -237,5 +242,6 @@ export async function loadProject(
     cxxFlags,
     linkerFlags,
     outputDir: resolve(directory, outputDir),
+    ...(typeof input.zigVersion === 'string' ? { zigVersion: input.zigVersion } : {}),
   };
 }
