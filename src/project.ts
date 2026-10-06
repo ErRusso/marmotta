@@ -1,7 +1,9 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { basename, extname, join, resolve } from 'node:path';
 import {
   ProjectConfigInvalidError,
+  ProjectConfigLoadFailedError,
   ProjectConfigReadFailedError,
   ProjectPackageReadFailedError,
   ProjectSourceInvalidError,
@@ -20,10 +22,18 @@ export type ProjectConfig = {
   outputDir: string;
 };
 
+export type ProjectConfigContext = {
+  directory: string;
+  target?: string;
+  platform: NodeJS.Platform;
+  arch: string;
+};
+
 type PackageJson = { name?: unknown };
 
 const sourceExtensions = new Set(['.c', '.cc', '.cpp', '.cxx']);
 const ignoredDirectories = new Set(['.git', '.marmotta', 'build', 'dist', 'node_modules']);
+let configLoadId = 0;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -73,7 +83,48 @@ async function projectName(directory: string): Promise<string> {
   return basename(directory).replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-export async function loadProject(directory: string): Promise<ProjectConfig> {
+async function loadConfigInput(
+  directory: string,
+  context: ProjectConfigContext,
+): Promise<Record<string, unknown>> {
+  const jsConfigPath = join(directory, 'marmotta.config.js');
+  let jsConfigStats;
+  try {
+    jsConfigStats = await stat(jsConfigPath);
+  } catch (error) {
+    if (errorCode(error) !== 'ENOENT') {
+      throw new ProjectConfigReadFailedError(jsConfigPath, { cause: error });
+    }
+  }
+
+  if (jsConfigStats) {
+    if (!jsConfigStats.isFile()) {
+      throw new ProjectConfigInvalidError(`${jsConfigPath} must be a file.`);
+    }
+    let exported: unknown;
+    try {
+      const configUrl = pathToFileURL(jsConfigPath);
+      configUrl.searchParams.set('marmotta-load', String(++configLoadId));
+      const configModule = await import(configUrl.href) as { default?: unknown };
+      exported = configModule.default;
+    } catch (error) {
+      throw new ProjectConfigLoadFailedError(jsConfigPath, { cause: error });
+    }
+
+    let config: unknown;
+    try {
+      config = typeof exported === 'function' ? await exported(context) : exported;
+    } catch (error) {
+      throw new ProjectConfigLoadFailedError(jsConfigPath, { cause: error });
+    }
+    if (!isRecord(config)) {
+      throw new ProjectConfigInvalidError(
+        `The default export in ${jsConfigPath} must be a configuration object or a function returning one.`,
+      );
+    }
+    return config;
+  }
+
   const configPath = join(directory, 'marmotta.config.json');
   let input: Record<string, unknown> = {};
   let configContents: string | undefined;
@@ -96,7 +147,19 @@ export async function loadProject(directory: string): Promise<ProjectConfig> {
     }
     input = parsed;
   }
+  return input;
+}
 
+export async function loadProject(
+  directory: string,
+  options: { target?: string } = {},
+): Promise<ProjectConfig> {
+  const input = await loadConfigInput(directory, {
+    directory,
+    target: options.target,
+    platform: process.platform,
+    arch: process.arch,
+  });
   const sources = stringArray(input.sources, 'sources');
   const includeDirs = stringArray(input.includeDirs, 'includeDirs');
   const cFlags = stringArray(input.cFlags, 'cFlags');

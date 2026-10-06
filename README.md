@@ -112,7 +112,22 @@ The example prints `world`. `configure` can be run to validate the project and p
 
 ## Configuration
 
-All paths in `marmotta.config.json` are resolved relative to the project directory. The configuration file is optional. Without it, Marmotta uses the package or directory name, discovers source files, and places the addon in the project root.
+All paths in either configuration file are resolved relative to the project directory. The configuration file is optional. Without it, Marmotta uses the package or directory name, discovers source files, and places the addon in the project root.
+
+You can use `marmotta.config.js` to compute configuration values with JavaScript. If both config files are present, `marmotta.config.js` takes precedence over `marmotta.config.json`. Export either a configuration object as the default export or a function that returns one; the function may be asynchronous and receives the project directory, requested Zig target, and host platform and architecture:
+
+```js
+export default ({ target, platform }) => {
+  const isWindows = target ? target.includes('windows') : platform === 'win32';
+  return {
+    name: 'hello',
+    sources: ['src/hello.c'],
+    cFlags: isWindows ? ['-DWIN32_BUILD'] : [],
+  };
+};
+```
+
+For `.js` files, use the module format selected by your project's `package.json` (`"type": "module"` for ESM). JavaScript configuration files execute as project code.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |

@@ -50,6 +50,35 @@ test('loads explicit options and resolves relative paths', async () => {
   });
 });
 
+test('prefers a JavaScript config and evaluates it with the build context', async () => {
+  await withProject(async (directory) => {
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ type: 'module' }));
+    await writeFile(join(directory, 'addon.c'), '');
+    await writeFile(join(directory, 'marmotta.config.json'), '{ invalid json');
+    await writeFile(join(directory, 'marmotta.config.js'), `
+      export default async ({ target, platform, arch }) => ({
+        name: target ? 'cross-build' : 'host-build',
+        sources: ['addon.c'],
+        cFlags: [platform, arch],
+      });
+    `);
+
+    const config = await loadProject(directory, { target: 'aarch64-macos' });
+    assert.equal(config.name, 'cross-build');
+    assert.deepEqual(config.sources, [join(directory, 'addon.c')]);
+    assert.deepEqual(config.cFlags, [process.platform, process.arch]);
+
+    await writeFile(join(directory, 'marmotta.config.js'), `
+      export default {
+        name: 'static-build',
+        sources: ['addon.c'],
+      };
+    `);
+    const staticConfig = await loadProject(directory);
+    assert.equal(staticConfig.name, 'static-build');
+  });
+});
+
 test('rejects configurations with wrong types and missing sources', async () => {
   await withProject(async (directory) => {
     await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ sources: ['missing.c'] }));
