@@ -32,6 +32,7 @@ Marmotta builds Node.js native addons written in C or C++ with [Node-API](https:
 - Reuse node-gyp-oriented sources that use `NODE_GYP_MODULE_NAME`.
 - Build for the host platform or pass a Zig target triple for cross-compilation.
 - Install Zig automatically when a suitable compiler is not already on `PATH`.
+- Load the same addon in Node.js, Electron, Deno, and Bun. On Windows, Marmotta binds Node-API functions to the process that loads the addon instead of to `node.exe`, so no delay-load hook is needed.
 
 ## Requirements
 
