@@ -1,8 +1,9 @@
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, resolve } from 'node:path';
 import { loadProject, type ProjectConfig } from './project.js';
 import { ensureMarmottaRoot, ensureZig, marmottaRoot, runZig } from './toolchain.js';
+import { hostImportsSource, readDefSymbols } from './windows-host.js';
 
 const require = createRequire(import.meta.url);
 type NodeApiHeaders = { include_dir: string; def_paths: { node_api_def: string } };
@@ -27,13 +28,6 @@ function isMacosTarget(target: string | undefined): boolean {
   return target ? target.includes('macos') || target.includes('darwin') : process.platform === 'darwin';
 }
 
-function windowsMachine(target: string | undefined): string {
-  if (target?.includes('aarch64') || target?.includes('arm64')) return 'arm64';
-  if (target?.includes('i386') || target?.includes('i686')) return 'i386';
-  if (target?.includes('x86_64') || target?.includes('amd64')) return 'i386:x86-64';
-  return process.arch === 'arm64' ? 'arm64' : 'i386:x86-64';
-}
-
 async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: boolean): Promise<void> {
   const outputDir = options.outputDir ? resolve(options.directory, options.outputDir) : config.outputDir;
   const output = join(outputDir, `${config.name}.node`);
@@ -53,41 +47,39 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
   // NODE_GYP_MODULE_NAME is used as a bare token, so it must be a valid C identifier.
   const moduleName = config.name.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
 
-  try {
-    if (windowsTarget) {
-      const importLibrary = join(temporaryDir, 'libnode_api.a');
-      await runZig(zig, [
-        'dlltool',
-        '-m',
-        windowsMachine(options.target),
-        '-d',
-        nodeApiHeaders.def_paths.node_api_def,
-        '-l',
-        importLibrary,
-      ], options.directory);
-    }
+  const commonFlags = [
+    ...(windowsTarget ? [] : ['-fPIC']),
+    ...(options.target ? ['-target', options.target] : []),
+    ...(options.debug ? ['-O0', '-g'] : ['-O2']),
+  ];
 
+  try {
     for (const [index, source] of config.sources.entries()) {
       const object = join(temporaryDir, `source-${index}.o`);
       const compiler = isCpp(source) ? 'c++' : 'cc';
       const flags = isCpp(source) ? config.cxxFlags : config.cFlags;
       const args = [compiler, '-c', source, `-DNODE_GYP_MODULE_NAME=${moduleName}`, ...includeFlags, ...flags, '-o', object];
-      if (!windowsTarget) args.push('-fPIC');
-      if (options.target) args.push('-target', options.target);
-      if (options.debug) args.push('-O0', '-g');
-      else args.push('-O2');
+      args.push(...commonFlags);
       await runZig(zig, args, options.directory);
       objects.push(object);
     }
 
+    if (windowsTarget) {
+      // Bind Node-API to whichever process loads the addon (node.exe, Electron, ...), not to NODE.EXE.
+      const hostImports = join(temporaryDir, 'node-api-host.c');
+      const object = join(temporaryDir, 'node-api-host.o');
+      await writeFile(hostImports, hostImportsSource(await readDefSymbols(nodeApiHeaders.def_paths.node_api_def)));
+      await runZig(zig, ['cc', '-c', hostImports, '-o', object, ...commonFlags], options.directory);
+      objects.push(object);
+    }
+
     const linker = hasCpp ? 'c++' : 'cc';
-  const args = [linker];
-  if (isMacosTarget(options.target)) args.push('-shared', '-undefined', 'dynamic_lookup');
-  else args.push('-shared');
-  args.push(...objects, '-o', output, ...config.linkerFlags);
+    const args = [linker];
+    if (isMacosTarget(options.target)) args.push('-shared', '-undefined', 'dynamic_lookup');
+    else args.push('-shared');
+    args.push(...objects, '-o', output, ...config.linkerFlags);
     if (options.target) args.push('-target', options.target);
-    if (windowsTarget) args.push('-L', temporaryDir, '-lnode_api');
-  else if (!isMacosTarget(options.target)) args.push('-Xlinker', '--allow-shlib-undefined');
+    if (!windowsTarget && !isMacosTarget(options.target)) args.push('-Xlinker', '--allow-shlib-undefined');
 
     await mkdir(dirname(output), { recursive: true });
     await runZig(zig, args, options.directory);
