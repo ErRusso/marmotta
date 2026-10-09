@@ -95,6 +95,24 @@ function runRunZig({ env, recordPath }) {
   assert.equal(result.status, 0, result.stderr || result.stdout);
 }
 
+function runRunZigResult({ env }) {
+  const script = `
+    const { runZig } = await import(process.env.MARMOTTA_TEST_TOOLCHAIN_MODULE);
+    try {
+      await runZig({ executable: process.execPath, args: [] }, [], process.cwd());
+      console.log(JSON.stringify({ status: 0 }));
+    } catch (error) {
+      console.log(JSON.stringify({ code: error.code, exitCode: error.exitCode, message: error.message }));
+      process.exitCode = error.exitCode ?? 1;
+    }
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8',
+    env,
+  });
+  return { status: result.status, ...JSON.parse(result.stdout.trim()) };
+}
+
 function releaseIndex(...versions) {
   return Object.fromEntries(versions.map((version) => [
     version,
@@ -167,6 +185,49 @@ test('places Zig global cache under MARMOTTA_ZIG_DIR', async () => {
       });
     },
     (directory) => join(directory, 'shared-tools'),
+  );
+});
+
+test('preserves an explicitly configured Zig global cache under MARMOTTA_ZIG_DIR', async () => {
+  await withToolchainEnvironment(
+    async ({ directory, env }) => {
+      const explicitCache = join(directory, 'explicit-cache');
+      await mkdir(explicitCache);
+      env.ZIG_GLOBAL_CACHE_DIR = explicitCache;
+
+      const recordPath = join(directory, 'explicit-zig-cache-env.json');
+      const recordScript = join(directory, 'record-explicit-zig-cache-env.mjs');
+      await writeFile(recordScript, `
+        import { writeFileSync } from 'node:fs';
+        writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({
+          zigCache: process.env.ZIG_GLOBAL_CACHE_DIR,
+        }));
+      `);
+
+      runRunZig({ env, recordPath: recordScript });
+
+      assert.deepEqual(JSON.parse(await readFile(recordPath, 'utf8')), {
+        zigCache: explicitCache,
+      });
+    },
+    (directory) => join(directory, 'shared-tools'),
+  );
+});
+
+test('wraps failed Zig cache directory creation in a Marmotta error', async () => {
+  await withToolchainEnvironment(
+    async ({ directory, env }) => {
+      const blockedParent = join(directory, 'not-a-directory');
+      await writeFile(blockedParent, 'cache parent is a file');
+
+      const result = runRunZigResult({ env });
+
+      assert.equal(result.status, 1);
+      assert.equal(result.code, 'MARMOTTA_DIRECTORY_FAILED');
+      assert.equal(result.exitCode, 1);
+      assert.match(result.message, /^Unable to create /);
+    },
+    (directory) => join(directory, 'not-a-directory', 'cache-root'),
   );
 });
 
