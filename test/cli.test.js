@@ -27,6 +27,7 @@ test('shows help without initializing the toolchain', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /configure/);
   assert.match(result.stdout, /build/);
+  assert.match(result.stdout, /MARMOTTA_ZIG_DIR/);
 });
 
 test('reports an unknown command with an error code', () => {

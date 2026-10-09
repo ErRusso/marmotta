@@ -23,7 +23,11 @@ Options:
       --target        Zig target, e.g. aarch64-macos or x86_64-windows
       --debug         compile without optimizations
   -h, --help          show this help
-  -v, --version       show the version`;
+  -v, --version       show the version
+
+Environment:
+  MARMOTTA_ZIG_DIR    custom directory for managed Zig toolchains
+`;
 
 type ParsedArgs = { command: string; positional: string[]; options: BuildOptions; help: boolean };
 

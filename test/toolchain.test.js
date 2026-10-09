@@ -16,7 +16,7 @@ const archiveExtension = process.platform === 'win32' ? 'zip' : 'tar.xz';
 const executableName = process.platform === 'win32' ? 'zig.exe' : 'zig';
 const tarAvailable = spawnSync('tar', ['--version'], { stdio: 'ignore' }).status === 0;
 
-async function withToolchainEnvironment(run) {
+async function withToolchainEnvironment(run, getZigDirectory) {
   const directory = await mkdtemp(join(tmpdir(), 'marmotta-toolchain-test-'));
   const home = join(directory, 'home');
   const bin = join(directory, 'bin');
@@ -41,7 +41,13 @@ async function withToolchainEnvironment(run) {
       NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
       MARMOTTA_TEST_TOOLCHAIN_MODULE: toolchainModule,
     };
-    await run({ directory, home, env });
+    delete env.MARMOTTA_ZIG_DIR;
+    const customZigDirectory = typeof getZigDirectory === 'function'
+      ? getZigDirectory(directory)
+      : getZigDirectory;
+    if (customZigDirectory !== undefined) env.MARMOTTA_ZIG_DIR = customZigDirectory;
+    const marmottaRoot = customZigDirectory ?? home;
+    await run({ directory, home, env, zigRoot: join(marmottaRoot, 'toolchains', 'zig') });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -100,6 +106,34 @@ test('uses the exact managed Zig version instead of a different Zig on PATH', as
     assert.equal(result.executable, join(localToolchain, executableName));
     assert.deepEqual(result.urls, []);
   });
+});
+
+test('installs the pinned Zig release under MARMOTTA_ZIG_DIR', async () => {
+  await withToolchainEnvironment(
+    async ({ directory, zigRoot, env }) => {
+      const payload = join(directory, 'payload');
+      await mkdir(payload);
+      await writeFile(join(payload, executableName), '');
+      const archivePath = join(directory, 'custom-zig.tar');
+      const archive = spawnSync('tar', ['-cf', archivePath, '-C', payload, executableName], { encoding: 'utf8' });
+      assert.equal(archive.status, 0, archive.stderr);
+
+      const result = runEnsureZig({
+        env,
+        version: zigVersion,
+        index: releaseIndex(zigVersion, newerVersion),
+        archivePath,
+      });
+
+      assert.equal(result.executable, join(zigRoot, zigVersion, executableName));
+      assert.deepEqual(result.urls, [
+        'https://ziglang.org/download/index.json',
+        `https://ziglang.org/${zigVersion}.${archiveExtension}`,
+      ]);
+      await readFile(result.executable);
+    },
+    (directory) => join(directory, 'shared-tools'),
+  );
 });
 
 test('downloads the exact pinned Zig release rather than the latest indexed version', {

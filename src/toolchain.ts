@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { access, chmod, mkdtemp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import {
   MarmottaDirectoryFailedError,
   PlatformNotSupportedError,
@@ -16,7 +16,10 @@ import {
   isMarmottaError,
 } from './errors.js';
 
-export const marmottaRoot = join(homedir(), '.marmotta');
+const configuredZigDirectory = process.env.MARMOTTA_ZIG_DIR;
+export const marmottaRoot = configuredZigDirectory
+  ? resolve(configuredZigDirectory)
+  : join(homedir(), '.marmotta');
 const zigRoot = join(marmottaRoot, 'toolchains', 'zig');
 const indexUrl = 'https://ziglang.org/download/index.json';
 

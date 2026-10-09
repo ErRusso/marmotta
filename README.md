@@ -32,6 +32,7 @@ Marmotta builds Node.js native addons written in C or C++ with [Node-API](https:
 - Reuse node-gyp-oriented sources that use `NODE_GYP_MODULE_NAME`.
 - Build for the host platform or pass a Zig target triple for cross-compilation.
 - Install Zig automatically when a suitable compiler is not already on `PATH`.
+- Store managed Zig toolchains and temporary build files in a custom directory via `MARMOTTA_ZIG_DIR`.
 - Load the same addon in Node.js, Electron, Deno, and Bun. On Windows, Marmotta binds Node-API functions to the process that loads the addon instead of to `node.exe`, so no delay-load hook is needed.
 
 ## Requirements
@@ -182,7 +183,7 @@ Use a target triple supported by Zig for the intended target. Cross-compilation 
 
 ## Zig toolchain
 
-Without a `zigVersion` pin, Marmotta uses `zig` from `PATH` when available, then a locally managed version, and otherwise downloads the latest stable Zig release for the supported host platform into `.marmotta` in the user's home directory (`~/.marmotta` on Unix-like systems or `%USERPROFILE%\.marmotta`). If `zigVersion` is set, Marmotta ignores `PATH` and selects that exact managed version, downloading it if necessary. If the pinned version is not available for the host platform, the command fails instead of falling back to another version. If the download index includes a checksum, Marmotta verifies the downloaded archive.
+Without a `zigVersion` pin, Marmotta uses `zig` from `PATH` when available, then a locally managed version, and otherwise downloads the latest stable Zig release for the supported host platform. By default, managed toolchains are stored in `.marmotta` in the user's home directory (`~/.marmotta` on Unix-like systems or `%USERPROFILE%\.marmotta`). Set `MARMOTTA_ZIG_DIR` to use a different root instead; for example, `export MARMOTTA_ZIG_DIR=/opt/shared-tools` stores Zig under `/opt/shared-tools/toolchains/zig`. The directory must be writable. If `zigVersion` is set, Marmotta ignores `PATH` and selects that exact managed version, downloading it if necessary. If the pinned version is not available for the host platform, the command fails instead of falling back to another version. If the download index includes a checksum, Marmotta verifies the downloaded archive.
 
 Prepare Zig in advance:
 
