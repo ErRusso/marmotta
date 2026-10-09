@@ -47,7 +47,7 @@ async function withToolchainEnvironment(run, getZigDirectory) {
       : getZigDirectory;
     if (customZigDirectory !== undefined) env.MARMOTTA_ZIG_DIR = customZigDirectory;
     const marmottaRoot = customZigDirectory ?? home;
-    await run({ directory, home, env, zigRoot: join(marmottaRoot, 'toolchains', 'zig') });
+    await run({ directory, home, env, marmottaRoot, zigRoot: join(marmottaRoot, 'toolchains', 'zig') });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -83,6 +83,18 @@ function runEnsureZig({ env, version, index, archivePath }) {
   return JSON.parse(result.stdout.trim());
 }
 
+function runRunZig({ env, recordPath }) {
+  const script = `
+    const { runZig } = await import(process.env.MARMOTTA_TEST_TOOLCHAIN_MODULE);
+    await runZig({ executable: process.execPath, args: [${JSON.stringify(recordPath)}] }, [], process.cwd());
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8',
+    env,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+}
+
 function releaseIndex(...versions) {
   return Object.fromEntries(versions.map((version) => [
     version,
@@ -110,7 +122,7 @@ test('uses the exact managed Zig version instead of a different Zig on PATH', as
 
 test('installs the pinned Zig release under MARMOTTA_ZIG_DIR', async () => {
   await withToolchainEnvironment(
-    async ({ directory, zigRoot, env }) => {
+    async ({ directory, marmottaRoot, zigRoot, env }) => {
       const payload = join(directory, 'payload');
       await mkdir(payload);
       await writeFile(join(payload, executableName), '');
@@ -131,6 +143,28 @@ test('installs the pinned Zig release under MARMOTTA_ZIG_DIR', async () => {
         `https://ziglang.org/${zigVersion}.${archiveExtension}`,
       ]);
       await readFile(result.executable);
+    },
+    (directory) => join(directory, 'shared-tools'),
+  );
+});
+
+test('places Zig global cache under MARMOTTA_ZIG_DIR', async () => {
+  await withToolchainEnvironment(
+    async ({ directory, marmottaRoot, zigRoot, env }) => {
+      const recordPath = join(directory, 'zig-cache-env.json');
+      const recordScript = join(directory, 'record-zig-env.mjs');
+      await writeFile(recordScript, `
+        import { writeFileSync } from 'node:fs';
+        writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({
+          zigCache: process.env.ZIG_GLOBAL_CACHE_DIR,
+        }));
+      `);
+
+      runRunZig({ env, recordPath: recordScript });
+
+      assert.deepEqual(JSON.parse(await readFile(recordPath, 'utf8')), {
+        zigCache: join(marmottaRoot, 'cache'),
+      });
     },
     (directory) => join(directory, 'shared-tools'),
   );

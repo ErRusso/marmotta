@@ -26,9 +26,11 @@ const indexUrl = 'https://ziglang.org/download/index.json';
 type ZigCommand = { executable: string; args: string[] };
 type ZigArtifact = { tarball?: unknown; shasum?: unknown };
 
-function run(executable: string, args: string[], options: { cwd?: string } = {}): Promise<void> {
+type RunOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
+
+function run(executable: string, args: string[], options: RunOptions = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: options.cwd, stdio: 'inherit' });
+    const child = spawn(executable, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: 'inherit' });
     child.once('error', (cause: Error) => {
       reject(new ToolchainSpawnFailedError(basename(executable), { cause }));
     });
@@ -107,6 +109,14 @@ export async function ensureMarmottaRoot(): Promise<void> {
     await mkdir(marmottaRoot, { recursive: true });
   } catch (error) {
     throw new MarmottaDirectoryFailedError(marmottaRoot, { cause: error });
+  }
+}
+
+async function ensureZigCache(): Promise<void> {
+  try {
+    await mkdir(join(marmottaRoot, 'cache'), { recursive: true });
+  } catch (error) {
+    throw new MarmottaDirectoryFailedError(join(marmottaRoot, 'cache'), { cause: error });
   }
 }
 
@@ -223,5 +233,10 @@ export async function removeZigVersion(version: string): Promise<void> {
 }
 
 export async function runZig(command: ZigCommand, args: string[], cwd: string): Promise<void> {
-  await run(command.executable, [...command.args, ...args], { cwd });
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (process.env.MARMOTTA_ZIG_DIR && !env.ZIG_GLOBAL_CACHE_DIR) {
+    env.ZIG_GLOBAL_CACHE_DIR = join(marmottaRoot, 'cache');
+  }
+  if (process.env.MARMOTTA_ZIG_DIR) await ensureZigCache();
+  await run(command.executable, [...command.args, ...args], { cwd, env });
 }
