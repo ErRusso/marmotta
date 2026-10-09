@@ -217,6 +217,7 @@ test('preserves an explicitly configured Zig global cache under MARMOTTA_ZIG_DIR
 test('wraps failed Zig cache directory creation in a Marmotta error', async () => {
   await withToolchainEnvironment(
     async ({ directory, env }) => {
+      // A regular-file component makes recursive mkdir fail deterministically.
       const blockedParent = join(directory, 'not-a-directory');
       await writeFile(blockedParent, 'cache parent is a file');
 
