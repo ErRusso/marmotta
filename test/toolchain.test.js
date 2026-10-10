@@ -138,9 +138,11 @@ test('uses the exact managed Zig version instead of a different Zig on PATH', as
   });
 });
 
-test('installs the pinned Zig release under MARMOTTA_ZIG_DIR', async () => {
+test('installs the pinned Zig release under MARMOTTA_ZIG_DIR', {
+  skip: !tarAvailable && 'tar is required to build the test archive',
+}, async () => {
   await withToolchainEnvironment(
-    async ({ directory, marmottaRoot, zigRoot, env }) => {
+    async ({ directory, zigRoot, env }) => {
       const payload = join(directory, 'payload');
       await mkdir(payload);
       await writeFile(join(payload, executableName), '');
@@ -168,7 +170,7 @@ test('installs the pinned Zig release under MARMOTTA_ZIG_DIR', async () => {
 
 test('places Zig global cache under MARMOTTA_ZIG_DIR', async () => {
   await withToolchainEnvironment(
-    async ({ directory, marmottaRoot, zigRoot, env }) => {
+    async ({ directory, marmottaRoot, env }) => {
       const recordPath = join(directory, 'zig-cache-env.json');
       const recordScript = join(directory, 'record-zig-env.mjs');
       await writeFile(recordScript, `

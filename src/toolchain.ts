@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { access, chmod, mkdtemp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import {
   MarmottaDirectoryFailedError,
   PlatformNotSupportedError,
@@ -16,11 +16,25 @@ import {
   isMarmottaError,
 } from './errors.js';
 
-const configuredZigDirectory = process.env.MARMOTTA_ZIG_DIR;
+const configuredZigDirectory = (() => {
+  const value = process.env.MARMOTTA_ZIG_DIR;
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    // A templated/empty value should fall back to the default home directory.
+    return undefined;
+  }
+  if (!isAbsolute(trimmed)) {
+    throw new Error(`MARMOTTA_ZIG_DIR must be an absolute path: ${trimmed}`);
+  }
+  return resolve(trimmed);
+})();
+
 export const marmottaRoot = configuredZigDirectory
-  ? resolve(configuredZigDirectory)
+  ? configuredZigDirectory
   : join(homedir(), '.marmotta');
 const zigRoot = join(marmottaRoot, 'toolchains', 'zig');
+const zigCacheDir = configuredZigDirectory ? join(marmottaRoot, 'cache') : undefined;
 const indexUrl = 'https://ziglang.org/download/index.json';
 
 type ZigCommand = { executable: string; args: string[] };
@@ -30,7 +44,11 @@ type RunOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
 
 function run(executable: string, args: string[], options: RunOptions = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: 'inherit' });
+    const env = options.env != null ? { ...options.env } : { ...process.env };
+    if (zigCacheDir != null && !process.env.ZIG_GLOBAL_CACHE_DIR) {
+      env.ZIG_GLOBAL_CACHE_DIR = zigCacheDir;
+    }
+    const child = spawn(executable, args, { cwd: options.cwd, env, stdio: 'inherit' });
     child.once('error', (cause: Error) => {
       reject(new ToolchainSpawnFailedError(basename(executable), { cause }));
     });
@@ -104,20 +122,38 @@ function systemZig(): ZigCommand | undefined {
   return result.status === 0 ? { executable: 'zig', args: [] } : undefined;
 }
 
-export async function ensureMarmottaRoot(): Promise<void> {
+async function ensureDirectory(path: string): Promise<void> {
   try {
-    await mkdir(marmottaRoot, { recursive: true });
+    await mkdir(path, { recursive: true });
   } catch (error) {
-    throw new MarmottaDirectoryFailedError(marmottaRoot, { cause: error });
+    throw new MarmottaDirectoryFailedError(path, { cause: error });
   }
 }
 
-async function ensureZigCache(): Promise<void> {
-  try {
-    await mkdir(join(marmottaRoot, 'cache'), { recursive: true });
-  } catch (error) {
-    throw new MarmottaDirectoryFailedError(join(marmottaRoot, 'cache'), { cause: error });
-  }
+// Create the Zig cache directory at most once: either when the marmotta
+// root is created (which happens before every build), or lazily on the
+// first runZig invocation. The single memoized promise serializes concurrent
+// callers and prevents redundant mkdir syscalls on the build hot path.
+let cacheDirCreation: Promise<void> | null = null;
+
+async function ensureZigCacheDir(): Promise<void> {
+  if (zigCacheDir == null) return;
+  cacheDirCreation = cacheDirCreation ?? Promise.resolve().then(async () => {
+    try {
+      await ensureDirectory(zigCacheDir);
+    } catch (error) {
+      // Release the memoized promise on failure so a retried invocation
+      // can attempt to create the directory again.
+      cacheDirCreation = null;
+      throw error;
+    }
+  });
+  await cacheDirCreation;
+}
+
+export async function ensureMarmottaRoot(): Promise<void> {
+  await ensureDirectory(marmottaRoot);
+  await ensureZigCacheDir();
 }
 
 async function downloadAndInstallZig(requestedVersion?: string): Promise<ZigCommand> {
@@ -233,10 +269,6 @@ export async function removeZigVersion(version: string): Promise<void> {
 }
 
 export async function runZig(command: ZigCommand, args: string[], cwd: string): Promise<void> {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (process.env.MARMOTTA_ZIG_DIR && !env.ZIG_GLOBAL_CACHE_DIR) {
-    env.ZIG_GLOBAL_CACHE_DIR = join(marmottaRoot, 'cache');
-  }
-  if (process.env.MARMOTTA_ZIG_DIR) await ensureZigCache();
-  await run(command.executable, [...command.args, ...args], { cwd, env });
+  await ensureZigCacheDir();
+  await run(command.executable, [...command.args, ...args], { cwd });
 }

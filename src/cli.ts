@@ -26,8 +26,7 @@ Options:
   -v, --version       show the version
 
 Environment:
-  MARMOTTA_ZIG_DIR    custom directory for managed Zig toolchains and build state
-`;
+  MARMOTTA_ZIG_DIR    custom directory for managed Zig toolchains and build state`;
 
 type ParsedArgs = { command: string; positional: string[]; options: BuildOptions; help: boolean };
 
