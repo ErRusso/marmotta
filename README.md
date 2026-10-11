@@ -7,7 +7,7 @@
 <div align="center">
 
 [![CI](https://github.com/napi-bindings/marmotta/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/napi-bindings/marmotta/actions/workflows/ci.yml)
-[![Latest version on npm](https://img.shields.io/npm/v/marmotta)](https://www.npmjs.com/package/marmotta)
+[![Latest release](https://img.shields.io/github/v/release/napi-bindings/marmotta)](https://github.com/napi-bindings/marmotta/releases/latest)
 [![marmotta monthly downloads on npm](https://img.shields.io/npm/dm/marmotta?label=marmotta%20downloads)](https://www.npmjs.com/package/marmotta)
 [![@napi-bindings/marmotta monthly downloads on npm](https://img.shields.io/npm/dm/%40napi-bindings%2Fmarmotta?label=%40napi-bindings%2Fmarmotta%20downloads)](https://www.npmjs.com/package/@napi-bindings/marmotta)
 
