@@ -5,18 +5,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/napi-bindings/marmotta/actions/workflows/ci.yml">
-    <img src="https://github.com/napi-bindings/marmotta/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI">
-  </a>
-  <a href="https://www.npmjs.com/package/marmotta" style="text-decoration: none;">
-    <img src="https://img.shields.io/npm/v/marmotta" alt="Latest version on npm">
-  </a>
-  <a href="https://www.npmjs.com/package/marmotta" style="text-decoration: none;">
-    <img src="https://img.shields.io/npm/dm/marmotta?label=marmotta%20downloads" alt="marmotta monthly downloads on npm">
-  </a>
-  <a href="https://www.npmjs.com/package/@napi-bindings/marmotta" style="text-decoration: none;">
-    <img src="https://img.shields.io/npm/dm/%40napi-bindings%2Fmarmotta?label=%40napi-bindings%2Fmarmotta%20downloads" alt="@napi-bindings/marmotta monthly downloads on npm">
-  </a>
+  [![CI](https://github.com/napi-bindings/marmotta/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/napi-bindings/marmotta/actions/workflows/ci.yml)
+  [![Latest version on npm](https://img.shields.io/npm/v/marmotta)](https://www.npmjs.com/package/marmotta)
+  [![marmotta monthly downloads on npm](https://img.shields.io/npm/dm/marmotta?label=marmotta%20downloads)](https://www.npmjs.com/package/marmotta)
+  [![@napi-bindings/marmotta monthly downloads on npm](https://img.shields.io/npm/dm/%40napi-bindings%2Fmarmotta?label=%40napi-bindings%2Fmarmotta%20downloads)](https://www.npmjs.com/package/@napi-bindings/marmotta)
 </p>
 
 Marmotta builds Node.js native addons written in C or C++ with [Node-API](https://nodejs.org/api/n-api.html). It uses [Zig](https://ziglang.org/) as the compiler toolchain and can install Zig for you, so projects do not need to configure `node-gyp` or CMake.
