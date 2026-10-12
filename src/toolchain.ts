@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { access, chmod, mkdtemp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, isAbsolute, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve, win32 } from 'node:path';
 import {
   MarmottaDirectoryFailedError,
   MarmottaHomeInvalidError,
@@ -25,9 +25,11 @@ type ZigArtifact = { tarball?: unknown; shasum?: unknown };
 type MarmottaHome = { path: string; fromEnvironment: boolean };
 
 function isAbsoluteHome(value: string): boolean {
-  // On Windows, isAbsolute() also accepts "\tools", which resolves against the current drive.
-  if (process.platform === 'win32') return /^[a-zA-Z]:[\\/]/.test(value) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(value);
-  return isAbsolute(value);
+  if (process.platform !== 'win32') return isAbsolute(value);
+  // Only a drive root ("C:\") or a UNC share ("\\server\share\") is a fixed location: isAbsolute() also accepts
+  // "\tools", which depends on the current drive, and device paths such as "\\.\pipe" or "\\?\C:\".
+  const root = win32.parse(value).root.replaceAll('/', '\\');
+  return /^[a-zA-Z]:\\$/.test(root) || /^\\\\[^\\?.][^\\]*\\[^\\]+\\?$/.test(root);
 }
 
 // Read on every call so an invalid MARMOTTA_HOME is reported as a Marmotta error by the command that needs it.
@@ -38,12 +40,21 @@ function marmottaHome(): MarmottaHome {
   return { path: resolve(value), fromEnvironment: true };
 }
 
-export function marmottaRoot(): string {
-  return marmottaHome().path;
+function zigRoot(): string {
+  return join(marmottaHome().path, 'toolchains', 'zig');
 }
 
-function zigRoot(): string {
-  return join(marmottaRoot(), 'toolchains', 'zig');
+// Zig keeps its global cache in the user's home directory; MARMOTTA_HOME moves it unless the user chose one.
+// An empty ZIG_GLOBAL_CACHE_DIR counts as unset, like an empty MARMOTTA_HOME. process.env lookups are
+// case-insensitive on Windows, so this also sees a differently-cased variable.
+function zigCacheDirectory(home: MarmottaHome): string | undefined {
+  return home.fromEnvironment && !process.env.ZIG_GLOBAL_CACHE_DIR ? join(home.path, 'cache') : undefined;
+}
+
+function directoryError(home: MarmottaHome, path: string, cause: unknown): Error {
+  return home.fromEnvironment
+    ? new MarmottaHomeUnavailableError(home.path, { cause })
+    : new MarmottaDirectoryFailedError(path, { cause });
 }
 
 function run(executable: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
@@ -123,31 +134,41 @@ function systemZig(): ZigCommand | undefined {
   return result.status === 0 ? { executable: 'zig', args: [] } : undefined;
 }
 
-export async function ensureMarmottaRoot(): Promise<string> {
+// Writability is not probed here: commands that only read the directory keep working when it is read-only,
+// and a read-only directory is reported by the first command that writes into it.
+export async function ensureMarmottaRoot(): Promise<void> {
   const home = marmottaHome();
+  const cache = zigCacheDirectory(home);
   try {
     await mkdir(home.path, { recursive: true });
-    // mkdir() succeeds on an existing read-only directory, so check that Marmotta can write into it.
-    await rm(await mkdtemp(join(home.path, '.write-check-')), { recursive: true, force: true });
+    if (cache) await mkdir(cache, { recursive: true });
   } catch (error) {
-    if (home.fromEnvironment) throw new MarmottaHomeUnavailableError(home.path, { cause: error });
-    throw new MarmottaDirectoryFailedError(home.path, { cause: error });
+    throw directoryError(home, home.path, error);
   }
-  return home.path;
 }
 
-// Zig keeps its global cache in the user's home directory; MARMOTTA_HOME moves it unless the user chose one.
-async function zigEnvironment(): Promise<NodeJS.ProcessEnv | undefined> {
+async function makeTemporaryDirectory(parent: string, prefix: string): Promise<string> {
   const home = marmottaHome();
-  // process.env lookups are case-insensitive on Windows, so this also sees a differently-cased variable.
-  if (!home.fromEnvironment || process.env.ZIG_GLOBAL_CACHE_DIR !== undefined) return undefined;
-  const cache = join(home.path, 'cache');
   try {
-    await mkdir(cache, { recursive: true });
+    await mkdir(parent, { recursive: true });
+    return await mkdtemp(join(parent, prefix));
   } catch (error) {
-    throw new MarmottaHomeUnavailableError(home.path, { cause: error });
+    throw directoryError(home, parent, error);
   }
-  return { ...process.env, ZIG_GLOBAL_CACHE_DIR: cache };
+}
+
+export function createBuildDirectory(): Promise<string> {
+  return makeTemporaryDirectory(marmottaHome().path, 'build-');
+}
+
+function zigEnvironment(): NodeJS.ProcessEnv | undefined {
+  const cache = zigCacheDirectory(marmottaHome());
+  if (!cache) return undefined;
+  // Drop an empty, differently-cased variable so the child does not receive two spellings on Windows.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => name.toUpperCase() !== 'ZIG_GLOBAL_CACHE_DIR'),
+  );
+  return { ...env, ZIG_GLOBAL_CACHE_DIR: cache };
 }
 
 async function downloadAndInstallZig(requestedVersion?: string): Promise<ZigCommand> {
@@ -195,8 +216,7 @@ async function downloadAndInstallZig(requestedVersion?: string): Promise<ZigComm
   }
 
   const root = zigRoot();
-  await mkdir(root, { recursive: true });
-  const temporaryDir = await mkdtemp(join(root, '.download-'));
+  const temporaryDir = await makeTemporaryDirectory(root, '.download-');
   const archivePath = join(temporaryDir, basename(new URL(artifact.tarball).pathname));
   const extractionDir = join(temporaryDir, 'extracted');
   try {
@@ -266,5 +286,5 @@ export async function removeZigVersion(version: string): Promise<void> {
 }
 
 export async function runZig(command: ZigCommand, args: string[], cwd: string): Promise<void> {
-  await run(command.executable, [...command.args, ...args], { cwd, env: await zigEnvironment() });
+  await run(command.executable, [...command.args, ...args], { cwd, env: zigEnvironment() });
 }

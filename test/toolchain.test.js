@@ -188,15 +188,15 @@ test('uses MARMOTTA_HOME instead of the home directory for managed Zig', async (
   });
 });
 
-test('creates a missing MARMOTTA_HOME directory', async () => {
+test('creates a missing MARMOTTA_HOME directory and its Zig cache', async () => {
   await withToolchainEnvironment(async ({ directory, env }) => {
     const marmottaHome = join(directory, 'missing', 'marmotta-home');
     env.MARMOTTA_HOME = marmottaHome;
 
-    const result = runToolchain(env, 'return { root: await toolchain.ensureMarmottaRoot() };');
+    const result = runToolchain(env, 'await toolchain.ensureMarmottaRoot();');
 
-    assert.deepEqual(result, { root: marmottaHome });
-    assert.equal(await exists(marmottaHome), true);
+    assert.deepEqual(result, {});
+    assert.equal(await exists(join(marmottaHome, 'cache')), true);
   });
 });
 
@@ -204,15 +204,19 @@ test('treats an empty MARMOTTA_HOME as unset', async () => {
   await withToolchainEnvironment(async ({ home, env }) => {
     env.MARMOTTA_HOME = '';
 
-    const result = runToolchain(env, 'return { root: await toolchain.ensureMarmottaRoot() };');
+    const result = runToolchain(env, 'await toolchain.ensureMarmottaRoot();');
 
-    assert.deepEqual(result, { root: join(home, '.marmotta') });
+    assert.deepEqual(result, {});
+    assert.equal(await exists(join(home, '.marmotta')), true);
   });
 });
 
 test('rejects a relative MARMOTTA_HOME', async () => {
   const relativePaths = ['relative/marmotta-home', ' '];
-  if (process.platform === 'win32') relativePaths.push('\marmotta-home', 'C:marmotta-home');
+  if (process.platform === 'win32') {
+    // Root-relative, drive-relative and device paths do not name a fixed directory.
+    relativePaths.push(String.raw`\marmotta-home`, 'C:marmotta-home', String.raw`\\.\pipe`, String.raw`\\?\C:\marmotta-home`);
+  }
   await withToolchainEnvironment(async ({ env }) => {
     for (const value of relativePaths) {
       env.MARMOTTA_HOME = value;
@@ -222,6 +226,17 @@ test('rejects a relative MARMOTTA_HOME', async () => {
       assert.match(result.message, /MARMOTTA_HOME must be an absolute path/);
       assert.deepEqual(result.urls, []);
     }
+  });
+});
+
+test('accepts a Windows MARMOTTA_HOME with forward slashes', { skip: process.platform !== 'win32' }, async () => {
+  await withToolchainEnvironment(async ({ directory, env }) => {
+    const marmottaHome = join(directory, 'forward-slashes');
+    env.MARMOTTA_HOME = marmottaHome.replaceAll('\\', '/');
+
+    const result = runToolchain(env, 'return { directory: await toolchain.createBuildDirectory() };');
+
+    assert.ok(result.directory?.startsWith(join(marmottaHome, 'build-')), JSON.stringify(result));
   });
 });
 
@@ -239,19 +254,21 @@ test('reports a MARMOTTA_HOME that cannot be created', async () => {
   });
 });
 
-test('reports a MARMOTTA_HOME that is not writable', {
+test('reports a read-only MARMOTTA_HOME only when Marmotta writes to it', {
   skip: (process.platform === 'win32' || process.getuid?.() === 0)
     && 'directory permissions cannot be enforced on Windows or as root',
 }, async () => {
   await withToolchainEnvironment(async ({ directory, env }) => {
     const marmottaHome = join(directory, 'read-only');
-    await mkdir(marmottaHome);
+    await mkdir(join(marmottaHome, 'cache'), { recursive: true });
     await chmod(marmottaHome, 0o555);
     env.MARMOTTA_HOME = marmottaHome;
 
     try {
-      const result = runToolchain(env, 'await toolchain.ensureMarmottaRoot();');
+      assert.deepEqual(runToolchain(env, 'return { versions: await toolchain.listZigVersions() };'), { versions: [] });
+      assert.deepEqual(runToolchain(env, 'await toolchain.ensureMarmottaRoot();'), {});
 
+      const result = runToolchain(env, 'await toolchain.createBuildDirectory();');
       assert.equal(result.code, 'MARMOTTA_HOME_UNAVAILABLE');
       assert.match(result.message, /MARMOTTA_HOME/);
     } finally {
@@ -299,8 +316,10 @@ test('moves the Zig global cache into MARMOTTA_HOME unless one is configured', a
 
     const marmottaHome = join(directory, 'custom-home');
     env.MARMOTTA_HOME = marmottaHome;
-    assert.deepEqual(await recordCache(env), { cache: join(marmottaHome, 'cache') });
-    assert.equal(await exists(join(marmottaHome, 'cache')), true);
+    const movedCache = { cache: join(marmottaHome, 'cache') };
+    assert.deepEqual(await recordCache(env), movedCache);
+    // An empty value is a template default, not a choice of cache directory.
+    assert.deepEqual(await recordCache({ ...env, ZIG_GLOBAL_CACHE_DIR: '' }), movedCache);
 
     const explicitCache = join(directory, 'explicit-cache');
     assert.deepEqual(await recordCache({ ...env, ZIG_GLOBAL_CACHE_DIR: explicitCache }), { cache: explicitCache });
