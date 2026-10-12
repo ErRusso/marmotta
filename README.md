@@ -185,7 +185,7 @@ Use a target triple supported by Zig for the intended target. Cross-compilation 
 
 ## Zig toolchain
 
-Without a `zigVersion` pin, Marmotta uses `zig` from `PATH` when available, then a locally managed version, and otherwise downloads the latest stable Zig release for the supported host platform into `.marmotta` in the user's home directory (`~/.marmotta` on Unix-like systems or `%USERPROFILE%\.marmotta`). If `zigVersion` is set, Marmotta ignores `PATH` and selects that exact managed version, downloading it if necessary. If the pinned version is not available for the host platform, the command fails instead of falling back to another version. If the download index includes a checksum, Marmotta verifies the downloaded archive.
+Without a `zigVersion` pin, Marmotta uses `zig` from `PATH` when available, then a locally managed version, and otherwise downloads the latest stable Zig release for the supported host platform into the Marmotta home directory (see [Marmotta home directory](#marmotta-home-directory)). If `zigVersion` is set, Marmotta ignores `PATH` and selects that exact managed version, downloading it if necessary. If the pinned version is not available for the host platform, the command fails instead of falling back to another version. If the download index includes a checksum, Marmotta verifies the downloaded archive.
 
 Prepare Zig in advance:
 
@@ -201,6 +201,23 @@ npx marmotta remove 0.14.1
 ```
 
 `list` and `remove` operate only on versions managed by Marmotta; they do not list, uninstall, or modify a system Zig executable found on `PATH`.
+
+### Marmotta home directory
+
+Marmotta stores managed Zig toolchains (`toolchains/zig/<version>`) and temporary build files in its home directory. By default this is `.marmotta` in the user's home directory (`~/.marmotta` on Unix-like systems or `%USERPROFILE%\.marmotta` on Windows).
+
+Set `MARMOTTA_HOME` to use another directory, for example when the home directory is read-only or not persistent, as on restricted CI runners or in containers:
+
+```sh
+export MARMOTTA_HOME=/var/cache/marmotta
+npx marmotta build
+```
+
+- The value must be an absolute path. On Windows it must include a drive letter (`D:\marmotta`) or be a UNC path (`\\server\share\marmotta`). Relative paths are rejected with `MARMOTTA_HOME_INVALID`.
+- An empty value is treated as unset.
+- Marmotta creates the directory if it does not exist. If it cannot be created or is not writable, the command fails with `MARMOTTA_HOME_UNAVAILABLE`.
+- Zig's global cache is placed in `<MARMOTTA_HOME>/cache`, so builds do not write to the home directory. If `ZIG_GLOBAL_CACHE_DIR` is already set, Marmotta leaves it unchanged.
+- Marmotta only removes files and directories it created, such as a Zig version removed with `marmotta remove` or temporary build directories. It never deletes or cleans the `MARMOTTA_HOME` directory itself, so it can point to a shared location.
 
 ## Contributing
 

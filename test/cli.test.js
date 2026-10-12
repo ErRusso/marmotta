@@ -210,3 +210,14 @@ NAPI_MODULE_INIT() {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('reports an invalid MARMOTTA_HOME without breaking help', () => {
+  const env = { ...process.env, MARMOTTA_HOME: 'relative/marmotta-home' };
+  const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8', env });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /MARMOTTA_HOME/);
+
+  const list = spawnSync(process.execPath, [cli, 'list'], { encoding: 'utf8', env });
+  assert.equal(list.status, 2);
+  assert.match(list.stderr, /^marmotta \[MARMOTTA_HOME_INVALID\]: MARMOTTA_HOME must be an absolute path/);
+});

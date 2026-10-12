@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { access, chmod, mkdtemp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import {
   MarmottaDirectoryFailedError,
+  MarmottaHomeInvalidError,
+  MarmottaHomeUnavailableError,
   PlatformNotSupportedError,
   ToolchainCommandFailedError,
   ToolchainSpawnFailedError,
@@ -16,16 +18,37 @@ import {
   isMarmottaError,
 } from './errors.js';
 
-export const marmottaRoot = join(homedir(), '.marmotta');
-const zigRoot = join(marmottaRoot, 'toolchains', 'zig');
 const indexUrl = 'https://ziglang.org/download/index.json';
 
 type ZigCommand = { executable: string; args: string[] };
 type ZigArtifact = { tarball?: unknown; shasum?: unknown };
+type MarmottaHome = { path: string; fromEnvironment: boolean };
 
-function run(executable: string, args: string[], options: { cwd?: string } = {}): Promise<void> {
+function isAbsoluteHome(value: string): boolean {
+  // On Windows, isAbsolute() also accepts "\tools", which resolves against the current drive.
+  if (process.platform === 'win32') return /^[a-zA-Z]:[\\/]/.test(value) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(value);
+  return isAbsolute(value);
+}
+
+// Read on every call so an invalid MARMOTTA_HOME is reported as a Marmotta error by the command that needs it.
+function marmottaHome(): MarmottaHome {
+  const value = process.env.MARMOTTA_HOME;
+  if (!value) return { path: join(homedir(), '.marmotta'), fromEnvironment: false };
+  if (!isAbsoluteHome(value)) throw new MarmottaHomeInvalidError(value);
+  return { path: resolve(value), fromEnvironment: true };
+}
+
+export function marmottaRoot(): string {
+  return marmottaHome().path;
+}
+
+function zigRoot(): string {
+  return join(marmottaRoot(), 'toolchains', 'zig');
+}
+
+function run(executable: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: options.cwd, stdio: 'inherit' });
+    const child = spawn(executable, args, { cwd: options.cwd, env: options.env, stdio: 'inherit' });
     child.once('error', (cause: Error) => {
       reject(new ToolchainSpawnFailedError(basename(executable), { cause }));
     });
@@ -61,11 +84,12 @@ function compareVersions(left: string, right: string): number {
 }
 
 async function findLocalZig(version?: string): Promise<ZigCommand | undefined> {
+  const root = zigRoot();
   try {
-    const versions = await readdir(zigRoot, { withFileTypes: true });
+    const versions = await readdir(root, { withFileTypes: true });
     for (const entry of versions) {
       if (!entry.isDirectory() || (version !== undefined && entry.name !== version)) continue;
-      const versionDir = join(zigRoot, entry.name);
+      const versionDir = join(root, entry.name);
       const entries = await readdir(versionDir, { withFileTypes: true });
       for (const entry of entries) {
         const candidateDir = entry.isDirectory() ? join(versionDir, entry.name) : versionDir;
@@ -84,7 +108,7 @@ async function findLocalZig(version?: string): Promise<ZigCommand | undefined> {
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw new ZigDiscoveryFailedError(`Unable to inspect ${zigRoot}.`, { cause: error });
+      throw new ZigDiscoveryFailedError(`Unable to inspect ${root}.`, { cause: error });
     }
   }
   return undefined;
@@ -99,12 +123,31 @@ function systemZig(): ZigCommand | undefined {
   return result.status === 0 ? { executable: 'zig', args: [] } : undefined;
 }
 
-export async function ensureMarmottaRoot(): Promise<void> {
+export async function ensureMarmottaRoot(): Promise<string> {
+  const home = marmottaHome();
   try {
-    await mkdir(marmottaRoot, { recursive: true });
+    await mkdir(home.path, { recursive: true });
+    // mkdir() succeeds on an existing read-only directory, so check that Marmotta can write into it.
+    await rm(await mkdtemp(join(home.path, '.write-check-')), { recursive: true, force: true });
   } catch (error) {
-    throw new MarmottaDirectoryFailedError(marmottaRoot, { cause: error });
+    if (home.fromEnvironment) throw new MarmottaHomeUnavailableError(home.path, { cause: error });
+    throw new MarmottaDirectoryFailedError(home.path, { cause: error });
   }
+  return home.path;
+}
+
+// Zig keeps its global cache in the user's home directory; MARMOTTA_HOME moves it unless the user chose one.
+async function zigEnvironment(): Promise<NodeJS.ProcessEnv | undefined> {
+  const home = marmottaHome();
+  // process.env lookups are case-insensitive on Windows, so this also sees a differently-cased variable.
+  if (!home.fromEnvironment || process.env.ZIG_GLOBAL_CACHE_DIR !== undefined) return undefined;
+  const cache = join(home.path, 'cache');
+  try {
+    await mkdir(cache, { recursive: true });
+  } catch (error) {
+    throw new MarmottaHomeUnavailableError(home.path, { cause: error });
+  }
+  return { ...process.env, ZIG_GLOBAL_CACHE_DIR: cache };
 }
 
 async function downloadAndInstallZig(requestedVersion?: string): Promise<ZigCommand> {
@@ -151,8 +194,9 @@ async function downloadAndInstallZig(requestedVersion?: string): Promise<ZigComm
     if (checksum !== artifact.shasum) throw new ZigChecksumMismatchError();
   }
 
-  await mkdir(zigRoot, { recursive: true });
-  const temporaryDir = await mkdtemp(join(zigRoot, '.download-'));
+  const root = zigRoot();
+  await mkdir(root, { recursive: true });
+  const temporaryDir = await mkdtemp(join(root, '.download-'));
   const archivePath = join(temporaryDir, basename(new URL(artifact.tarball).pathname));
   const extractionDir = join(temporaryDir, 'extracted');
   try {
@@ -163,7 +207,7 @@ async function downloadAndInstallZig(requestedVersion?: string): Promise<ZigComm
     const installSource = extractedEntries.length === 1 && extractedEntries[0]?.isDirectory()
       ? join(extractionDir, extractedEntries[0].name)
       : extractionDir;
-    const installDir = join(zigRoot, version);
+    const installDir = join(root, version);
     await rm(installDir, { recursive: true, force: true });
     await rename(installSource, installDir);
     const executable = join(installDir, process.platform === 'win32' ? 'zig.exe' : 'zig');
@@ -199,26 +243,28 @@ export async function ensureZig(version?: string): Promise<ZigCommand> {
 }
 
 export async function listZigVersions(): Promise<string[]> {
+  const root = zigRoot();
   try {
-    return (await readdir(zigRoot, { withFileTypes: true }))
+    return (await readdir(root, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
       .map((entry) => entry.name)
       .sort(compareVersions);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw new ZigDiscoveryFailedError(`Unable to read Zig versions in ${zigRoot}.`, { cause: error });
+    throw new ZigDiscoveryFailedError(`Unable to read Zig versions in ${root}.`, { cause: error });
   }
 }
 
 export async function removeZigVersion(version: string): Promise<void> {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new ZigVersionInvalidError(version);
+  const root = zigRoot();
   try {
-    await rm(join(zigRoot, version), { recursive: true, force: true });
+    await rm(join(root, version), { recursive: true, force: true });
   } catch (error) {
     throw new ZigInstallFailedError(`Unable to remove Zig ${version}.`, { cause: error });
   }
 }
 
 export async function runZig(command: ZigCommand, args: string[], cwd: string): Promise<void> {
-  await run(command.executable, [...command.args, ...args], { cwd });
+  await run(command.executable, [...command.args, ...args], { cwd, env: await zigEnvironment() });
 }
