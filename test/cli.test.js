@@ -7,6 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+
+// Every CLI process inherits this environment: run it with Marmotta's defaults, not the developer's own settings.
+// node --test runs each file in its own process, and Windows variable names are case-insensitive.
+for (const name of Object.keys(process.env)) {
+  if (['MARMOTTA_HOME', 'ZIG_GLOBAL_CACHE_DIR'].includes(name.toUpperCase())) delete process.env[name];
+}
+
 const zigAvailable = spawnSync('zig', ['version'], { stdio: 'ignore' }).status === 0;
 // Runtimes installed through npm are .cmd shims on Windows, which only run through a shell.
 const runtimeAvailable = (command) => spawnSync(command, ['--version'], {

@@ -190,19 +190,21 @@ test('uses MARMOTTA_HOME instead of the home directory for managed Zig', async (
   });
 });
 
-test('creates a missing MARMOTTA_HOME directory and its Zig cache', async () => {
+test('creates a missing MARMOTTA_HOME directory when it first writes to it', async () => {
   await withToolchainEnvironment(async ({ directory, home, env }) => {
     const marmottaHome = join(directory, 'missing', 'marmotta-home');
     env.MARMOTTA_HOME = marmottaHome;
 
     const result = runToolchain(env, `
       const zig = await toolchain.ensureZig();
-      return { cache: zig.env.ZIG_GLOBAL_CACHE_DIR, build: await toolchain.createBuildDirectory() };
+      const created = (await import('node:fs')).existsSync(${JSON.stringify(marmottaHome)});
+      return { created, cache: zig.env.ZIG_GLOBAL_CACHE_DIR, build: await toolchain.createBuildDirectory(zig) };
     `);
 
+    // Finding Zig writes nothing; the first build creates the directory.
+    assert.equal(result.created, false);
     assert.equal(result.cache, join(marmottaHome, 'cache'));
     assert.ok(result.build?.startsWith(join(marmottaHome, 'build-')), JSON.stringify(result));
-    assert.equal(await exists(join(marmottaHome, 'cache')), true);
     assert.equal(await exists(join(home, '.marmotta')), false);
   });
 });
@@ -213,7 +215,7 @@ test('treats an empty MARMOTTA_HOME as unset', async () => {
 
     const result = runToolchain(env, `
       const zig = await toolchain.ensureZig();
-      return { env: zig.env ?? null, build: await toolchain.createBuildDirectory() };
+      return { env: zig.env ?? null, build: await toolchain.createBuildDirectory(zig) };
     `);
 
     assert.equal(result.env, null);
@@ -244,7 +246,10 @@ test('accepts a Windows MARMOTTA_HOME with forward slashes', { skip: process.pla
     const marmottaHome = join(directory, 'forward-slashes');
     env.MARMOTTA_HOME = marmottaHome.replaceAll('\\', '/');
 
-    const result = runToolchain(env, 'return { directory: await toolchain.createBuildDirectory() };');
+    const result = runToolchain(env, `
+      const zig = await toolchain.ensureZig();
+      return { directory: await toolchain.createBuildDirectory(zig) };
+    `);
 
     assert.ok(result.directory?.startsWith(join(marmottaHome, 'build-')), JSON.stringify(result));
   });
@@ -258,7 +263,7 @@ test('reports a MARMOTTA_HOME that cannot be created', async () => {
     const marmottaHome = join(blocker, 'marmotta-home');
     env.MARMOTTA_HOME = marmottaHome;
 
-    const result = runToolchain(env, 'await toolchain.createBuildDirectory();');
+    const result = runToolchain(env, 'await toolchain.createBuildDirectory(await toolchain.ensureZig());');
 
     assert.equal(result.code, 'MARMOTTA_HOME_UNAVAILABLE');
     assert.ok(result.message.startsWith(`Unable to create or write to the MARMOTTA_HOME directory ${marmottaHome} (`),
@@ -273,7 +278,10 @@ test('names the failing Zig cache directory inside MARMOTTA_HOME', async () => {
     await mkdir(marmottaHome);
     await writeFile(join(marmottaHome, 'cache'), '');
 
-    const result = runToolchain(env, 'await toolchain.ensureZig();');
+    const result = runToolchain(env, `
+      const zig = await toolchain.ensureZig();
+      await toolchain.runZig(zig, ['version'], process.cwd());
+    `);
 
     assert.equal(result.code, 'MARMOTTA_HOME_UNAVAILABLE');
     assert.ok(result.message.startsWith(
@@ -288,28 +296,52 @@ test('reports a read-only MARMOTTA_HOME only when Marmotta writes to it', {
 }, async () => {
   await withToolchainEnvironment(async ({ directory, env }) => {
     const marmottaHome = join(directory, 'read-only');
-    await mkdir(join(marmottaHome, 'cache'), { recursive: true });
+    await mkdir(marmottaHome);
     await chmod(marmottaHome, 0o555);
     env.MARMOTTA_HOME = marmottaHome;
 
     try {
+      // Reading and finding an existing Zig write nothing, even though the cache directory does not exist.
       assert.deepEqual(runToolchain(env, 'return { versions: await toolchain.listZigVersions() };'), { versions: [] });
       assert.deepEqual(runToolchain(env, 'return { executable: (await toolchain.ensureZig()).executable };'),
         { executable: 'zig' });
 
-      const result = runToolchain(env, 'await toolchain.createBuildDirectory();');
-      assert.equal(result.code, 'MARMOTTA_HOME_UNAVAILABLE');
-      assert.match(result.message, /MARMOTTA_HOME directory .* \(EACCES\)/);
+      const build = runToolchain(env, 'await toolchain.createBuildDirectory(await toolchain.ensureZig());');
+      assert.equal(build.code, 'MARMOTTA_HOME_UNAVAILABLE');
+      assert.match(build.message, /MARMOTTA_HOME directory .* \(EACCES\)/);
 
-      // Install failures keep their error code and say which directory could not be used.
-      const archivePath = join(directory, 'archive');
-      await writeFile(archivePath, '');
-      const install = runEnsureZig({ env, version: zigVersion, index: releaseIndex(zigVersion), archivePath });
+      // The install fails before anything is downloaded, keeps its error code and says what failed.
+      const install = runEnsureZig({ env, version: zigVersion, index: releaseIndex(zigVersion), archivePath: null });
       assert.equal(install.code, 'ZIG_INSTALL_FAILED');
-      assert.ok(install.message.includes(`${join(marmottaHome, 'toolchains', 'zig')} in the MARMOTTA_HOME directory`),
-        install.message);
+      assert.match(install.message, new RegExp(`^Zig installation failed: EACCES on .* in the MARMOTTA_HOME directory`));
+      assert.deepEqual(install.urls, []);
     } finally {
       await chmod(marmottaHome, 0o755);
+    }
+  });
+});
+
+test('reports a read-only Zig cache in MARMOTTA_HOME before running Zig', {
+  skip: (process.platform === 'win32' || process.getuid?.() === 0)
+    && 'directory permissions cannot be enforced on Windows or as root',
+}, async () => {
+  await withToolchainEnvironment(async ({ directory, env }) => {
+    const marmottaHome = join(directory, 'shared');
+    const cache = join(marmottaHome, 'cache');
+    await mkdir(cache, { recursive: true });
+    await chmod(cache, 0o555);
+    env.MARMOTTA_HOME = marmottaHome;
+
+    try {
+      const result = runToolchain(env, `
+        const zig = await toolchain.ensureZig();
+        await toolchain.runZig(zig, ['version'], process.cwd());
+      `);
+
+      assert.equal(result.code, 'MARMOTTA_HOME_UNAVAILABLE');
+      assert.ok(result.message.includes(`${cache} in the MARMOTTA_HOME directory`), result.message);
+    } finally {
+      await chmod(cache, 0o755);
     }
   });
 });
@@ -356,6 +388,7 @@ test('moves the Zig global cache into MARMOTTA_HOME unless one is configured', a
     env.MARMOTTA_HOME = marmottaHome;
     const movedCache = { cache: join(marmottaHome, 'cache') };
     assert.deepEqual(await recordCache(env), movedCache);
+    assert.equal(await exists(join(marmottaHome, 'cache')), true);
     // An empty value is a template default, not a choice of cache directory.
     assert.deepEqual(await recordCache({ ...env, ZIG_GLOBAL_CACHE_DIR: '' }), movedCache);
 

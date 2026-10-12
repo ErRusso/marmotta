@@ -38,7 +38,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
   }
 
   const zig = await ensureZig(config.zigVersion);
-  const temporaryDir = await createBuildDirectory();
+  const temporaryDir = await createBuildDirectory(zig);
   const hasCpp = config.sources.some(isCpp);
   const windowsTarget = isWindowsTarget(options.target);
   const includeFlags = ['-I', nodeApiHeaders.include_dir, ...config.includeDirs.flatMap((item) => ['-I', item])];
