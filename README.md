@@ -213,9 +213,9 @@ export MARMOTTA_HOME=/var/cache/marmotta
 npx marmotta build
 ```
 
-- The value must be an absolute path. On Windows it must start with a drive letter (`D:\marmotta`) or be a UNC path (`\\server\share\marmotta`); root-relative paths such as `\marmotta` and device paths such as `\\?\` or `\\.\` are not accepted. Invalid values are rejected with `MARMOTTA_HOME_INVALID`.
+- The value must be an absolute path. On Windows it must start with a drive letter (`D:\marmotta`) or be a UNC path (`\\server\share\marmotta`); root-relative paths such as `\marmotta` and device paths such as `\\?\` or `\\.\` are not accepted. `~` is not expanded, and values with leading or trailing whitespace are rejected instead of being trimmed. Invalid values are rejected with `MARMOTTA_HOME_INVALID`.
 - An empty value is treated as unset.
-- Marmotta creates the directory if it does not exist. If it cannot be created, or is read-only when a command needs to write to it (for example to build or to install Zig), the command fails with `MARMOTTA_HOME_UNAVAILABLE`.
+- Marmotta creates the directory, and the subdirectories it needs, when a command first writes to it. If a directory cannot be created or written, for example when building, the command fails with `MARMOTTA_HOME_UNAVAILABLE` and names the directory and the cause. A failed Zig installation keeps its `ZIG_INSTALL_FAILED` code and includes the same details. Commands that only read, such as `marmotta list`, also work with a read-only directory.
 - Zig's global cache is placed in `<MARMOTTA_HOME>/cache`, so builds do not write to the home directory. If `ZIG_GLOBAL_CACHE_DIR` is already set to a non-empty value, Marmotta leaves it unchanged.
 - Marmotta only removes files and directories it created, such as a Zig version removed with `marmotta remove` or temporary build directories. It never deletes or cleans the `MARMOTTA_HOME` directory itself, so it can point to a shared location.
 
