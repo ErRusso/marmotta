@@ -72,6 +72,7 @@ export async function createBuildDirectory(command: ZigCommand): Promise<string>
 }
 
 // Zig keeps its global cache in the user's home directory; MARMOTTA_HOME moves it unless the user chose one.
+// Without MARMOTTA_HOME the cache stays where Zig puts it by default, so existing caches keep being reused.
 // An empty ZIG_GLOBAL_CACHE_DIR counts as unset, like an empty MARMOTTA_HOME. process.env lookups are
 // case-insensitive on Windows, so this also sees a differently-cased variable. Nothing is written here: the
 // cache directory is prepared when Zig first runs.
