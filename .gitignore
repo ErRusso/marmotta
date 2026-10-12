@@ -5,3 +5,15 @@ coverage/
 *.node
 *.tgz
 .DS_Store
+
+# Claude files
+CLAUDE.md
+.claude
+
+# Local tooling
+AGENTS.md
+.agents
+
+
+# Ignore .githuman
+.githuman
