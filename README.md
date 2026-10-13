@@ -199,7 +199,7 @@ List and remove toolchain versions managed by Marmotta:
 
 ```sh
 npx marmotta list
-npx marmotta remove 0.14.1
+npx marmotta remove 0.6.0
 ```
 
 `list` and `remove` operate only on versions managed by Marmotta; they do not list, uninstall, or modify a system Zig executable found on `PATH`.
