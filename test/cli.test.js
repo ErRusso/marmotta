@@ -7,6 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+
+// Every CLI process inherits this environment: run it with Marmotta's defaults, not the developer's own settings.
+// node --test runs each file in its own process, and Windows variable names are case-insensitive.
+for (const name of Object.keys(process.env)) {
+  if (['MARMOTTA_HOME', 'ZIG_GLOBAL_CACHE_DIR'].includes(name.toUpperCase())) delete process.env[name];
+}
+
 const zigAvailable = spawnSync('zig', ['version'], { stdio: 'ignore' }).status === 0;
 // Runtimes installed through npm are .cmd shims on Windows, which only run through a shell.
 const runtimeAvailable = (command) => spawnSync(command, ['--version'], {
@@ -209,4 +216,15 @@ NAPI_MODULE_INIT() {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('reports an invalid MARMOTTA_HOME without breaking help', () => {
+  const env = { ...process.env, MARMOTTA_HOME: 'relative/marmotta-home' };
+  const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8', env });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /MARMOTTA_HOME/);
+
+  const list = spawnSync(process.execPath, [cli, 'list'], { encoding: 'utf8', env });
+  assert.equal(list.status, 2);
+  assert.match(list.stderr, /^marmotta \[MARMOTTA_HOME_INVALID\]: MARMOTTA_HOME must be an absolute path/);
 });

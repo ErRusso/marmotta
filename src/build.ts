@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, resolve } from 'node:path';
 import { loadProject, type ProjectConfig } from './project.js';
-import { ensureMarmottaRoot, ensureZig, marmottaRoot, runZig } from './toolchain.js';
+import { createBuildDirectory, ensureZig, runZig } from './toolchain.js';
 import { hostImportsSource, readDefSymbols } from './windows-host.js';
 
 const require = createRequire(import.meta.url);
@@ -38,8 +38,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
   }
 
   const zig = await ensureZig(config.zigVersion);
-  await ensureMarmottaRoot();
-  const temporaryDir = await mkdtemp(join(marmottaRoot, 'build-'));
+  const temporaryDir = await createBuildDirectory(zig);
   const hasCpp = config.sources.some(isCpp);
   const windowsTarget = isWindowsTarget(options.target);
   const includeFlags = ['-I', nodeApiHeaders.include_dir, ...config.includeDirs.flatMap((item) => ['-I', item])];

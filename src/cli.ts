@@ -23,7 +23,10 @@ Options:
       --target        Zig target, e.g. aarch64-macos or x86_64-windows
       --debug         compile without optimizations
   -h, --help          show this help
-  -v, --version       show the version`;
+  -v, --version       show the version
+
+Environment:
+  MARMOTTA_HOME       absolute path that replaces ~/.marmotta as Marmotta's root directory`;
 
 type ParsedArgs = { command: string; positional: string[]; options: BuildOptions; help: boolean };
 
