@@ -27,6 +27,7 @@ Marmotta builds Node.js native addons written in C or C++ with [Node-API](https:
 - [Contributing](#contributing)
 - [License](#license)
 - [Team](#team)
+- [Contributors](#contributors)
 
 ## Highlights
 
@@ -246,3 +247,7 @@ Marmotta is licensed under the Apache License, Version 2.0. See [LICENSE](LICENS
 ## Team
 
 - [Nicola Del Gobbo](https://github.com/NickNaso)
+
+## Contributors
+
+- [Simone Russo](https://github.com/ErRusso)

@@ -1,12 +1,19 @@
 {
   "name": "marmotta",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Marmotta - a Node.js native addon build tool",
   "author": {
     "name": "Nicola Del Gobbo",
     "email": "nicoladelgobbo@gmail.com",
     "url": "https://github.com/NickNaso"
   },
+  "contributors": [
+    {
+      "name": "Simone Russo",
+      "email": "s.russo06@icloud.com",
+      "url": "https://github.com/ErRusso"
+    }
+  ],
   "keywords": [
     "native",
     "addon",
