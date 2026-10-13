@@ -61,7 +61,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
-  logger.setDebugMode(parsed.options.debug);
+  logger.setDebugMode(parsed.options.debug ?? false);
 
   if (parsed.help) {
     logger.info(usage);
