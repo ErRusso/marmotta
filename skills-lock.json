@@ -7,12 +7,6 @@
       "skillPath": "skills/documentation/SKILL.md",
       "computedHash": "6172f1d7044245f3b6d81df45b5b3913ab2f5e43b06121d6224d573ce0aa5158"
     },
-    "init": {
-      "source": "mcollina/skills",
-      "sourceType": "github",
-      "skillPath": "skills/init/SKILL.md",
-      "computedHash": "13f72ad7560d9b60b195bec8610ff514d28c0d72f361bf41a10db829da65e6d6"
-    },
     "node": {
       "source": "mcollina/skills",
       "sourceType": "github",
@@ -30,6 +24,12 @@
       "sourceType": "github",
       "skillPath": "skills/octocat/SKILL.md",
       "computedHash": "269fbc7c5ea1c80214e038e7e397a1ac3cd35f545ebda7d52db08a829a31abe0"
+    },
+    "snipgrapher": {
+      "source": "mcollina/skills",
+      "sourceType": "github",
+      "skillPath": "skills/snipgrapher/SKILL.md",
+      "computedHash": "ede2ff01d91a1956a0542feb379c646663c40de3b8bbbc749b56a6d262f2312e"
     },
     "typescript-magician": {
       "source": "mcollina/skills",
