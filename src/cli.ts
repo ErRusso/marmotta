@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { build, clean, configure, type BuildOptions } from './build.js';
 import { CliArgumentError, CliCommandError, normalizeError } from './errors.js';
 import { ensureZig, listZigVersions, removeZigVersion } from './toolchain.js';
+import { logger } from './logger.js';
 
 const usage = `Marmotta - build tool for Node.js addons with Zig
 
@@ -60,12 +61,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
+  logger.setDebugMode(parsed.options.debug);
+
   if (parsed.help) {
-    console.log(usage);
+    logger.info(usage);
     return;
   }
   if (parsed.command === '--version' || parsed.command === '-v') {
-    console.log('marmotta 0.6.0');
+    logger.info('marmotta 0.6.0');
     return;
   }
 
@@ -85,11 +88,11 @@ async function main(): Promise<void> {
       break;
     case 'install':
       await ensureZig();
-      console.log('Zig toolchain is ready.');
+      logger.info('Zig toolchain is ready.');
       break;
     case 'list': {
       const versions = await listZigVersions();
-      console.log(versions.length > 0 ? versions.join('\n') : 'No Zig versions installed by Marmotta.');
+      logger.info(versions.length > 0 ? versions.join('\n') : 'No Zig versions installed by Marmotta.');
       break;
     }
     case 'remove': {
@@ -98,7 +101,7 @@ async function main(): Promise<void> {
         throw new CliArgumentError('Specify the Zig version to remove.');
       }
       await removeZigVersion(version);
-      console.log(`Removed Zig version ${version}.`);
+      logger.info(`Removed Zig version ${version}.`);
       break;
     }
     default:
@@ -108,6 +111,6 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   const normalized = normalizeError(error);
-  console.error(`marmotta [${normalized.code}]: ${normalized.message}`);
+  logger.error(`marmotta [${normalized.code}]: ${normalized.message}`);
   process.exitCode = normalized.exitCode;
 });

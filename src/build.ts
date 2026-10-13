@@ -4,6 +4,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { loadProject, type ProjectConfig } from './project.js';
 import { createBuildDirectory, ensureZig, runZig } from './toolchain.js';
 import { hostImportsSource, readDefSymbols } from './windows-host.js';
+import { logger } from './logger.js';
 
 const require = createRequire(import.meta.url);
 type NodeApiHeaders = { include_dir: string; def_paths: { node_api_def: string } };
@@ -33,7 +34,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
   const output = join(outputDir, `${config.name}.node`);
   if (cleanOnly) {
     await rm(output, { force: true });
-    console.log(`Removed ${output}`);
+    logger.info(`Removed ${output}`);
     return;
   }
 
@@ -82,7 +83,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
 
     await mkdir(dirname(output), { recursive: true });
     await runZig(zig, args, options.directory);
-    console.log(`Addon built: ${output}`);
+    logger.info(`Addon built: ${output}`);
   } finally {
     await rm(temporaryDir, { recursive: true, force: true });
   }
@@ -91,7 +92,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
 export async function configure(options: BuildOptions): Promise<ProjectConfig> {
   const config = await loadProject(options.directory, { target: options.target });
   await ensureZig(config.zigVersion);
-  console.log(`Configuration ready: ${config.name} (${config.sources.length} sources)`);
+  logger.info(`Configuration ready: ${config.name} (${config.sources.length} sources)`);
   return config;
 }
 
