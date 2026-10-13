@@ -170,7 +170,7 @@ NAPI_MODULE_INIT() {
 
     const host = join(directory, 'host.exe');
     await link(process.execPath, host).catch(() => copyFile(process.execPath, host));
-    const hostResult = spawnSync(host, ['-e', `console.log(require(${JSON.stringify(output)}).add(2, 3))`], {
+    const hostResult = spawnSync(host, ['-e', `console.log(String(require(${JSON.stringify(output)}).add(2, 3)))`], {
       encoding: 'utf8',
     });
     assert.equal(hostResult.status, 0, hostResult.stderr);
