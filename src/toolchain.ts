@@ -8,6 +8,8 @@ import {
   MarmottaDirectoryFailedError,
   MarmottaHomeInvalidError,
   MarmottaHomeUnavailableError,
+  MarmottaZigDirInvalidError,
+  MarmottaZigDirUnavailableError,
   PlatformNotSupportedError,
   ToolchainCommandFailedError,
   ToolchainSpawnFailedError,
@@ -28,7 +30,7 @@ type MarmottaHome = { path: string; fromEnvironment: boolean };
 // directory always come from the same MARMOTTA_HOME value.
 type ZigCommand = ZigExecutable & { home: MarmottaHome; env?: NodeJS.ProcessEnv; cacheDirectory?: string };
 
-function isAbsoluteHome(value: string): boolean {
+function isAbsoluteDirectory(value: string): boolean {
   if (process.platform !== 'win32') return isAbsolute(value);
   // Only a drive root ("C:\") or a UNC share ("\\server\share\") is a fixed location: isAbsolute() also accepts
   // "\tools", which depends on the current drive, and the device prefixes "\\.\" and "\\?\".
@@ -42,8 +44,17 @@ function marmottaHome(): MarmottaHome {
   if (!value) return { path: join(homedir(), '.marmotta'), fromEnvironment: false };
   // Surrounding whitespace is usually a copy-paste mistake; rejecting it avoids silently using another directory.
   // "~" is not expanded either: it is a shell feature, so a quoted "~/marmotta" is rejected as relative.
-  if (value.trim() !== value || !isAbsoluteHome(value)) throw new MarmottaHomeInvalidError(value);
+  if (value.trim() !== value || !isAbsoluteDirectory(value)) throw new MarmottaHomeInvalidError(value);
   return { path: resolve(value), fromEnvironment: true };
+}
+
+// MARMOTTA_ZIG_DIR names an existing Zig installation, for systems where Zig cannot be downloaded. It follows the
+// MARMOTTA_HOME rules and is read when a command needs it.
+function configuredZigDirectory(): string | undefined {
+  const value = process.env.MARMOTTA_ZIG_DIR;
+  if (!value) return undefined;
+  if (value.trim() !== value || !isAbsoluteDirectory(value)) throw new MarmottaZigDirInvalidError(value);
+  return resolve(value);
 }
 
 function zigRoot(home: MarmottaHome): string {
@@ -280,6 +291,19 @@ async function findZig(home: MarmottaHome, version?: string): Promise<ZigExecuta
   return systemZig() ?? await findLocalZig(root) ?? installZig(home);
 }
 
+// The configured Zig replaces every other source, including a zigVersion pin: falling back to PATH or to a
+// download would bypass a toolchain that was chosen because it cannot be replaced.
+async function configuredZig(directory: string): Promise<ZigExecutable> {
+  const executable = join(directory, process.platform === 'win32' ? 'zig.exe' : 'zig');
+  try {
+    await access(executable, constants.X_OK);
+  } catch (error) {
+    const reason = (error as NodeJS.ErrnoException).code ?? String(error);
+    throw new MarmottaZigDirUnavailableError(executable, reason, { cause: error });
+  }
+  return { executable, args: [] };
+}
+
 // Resolves MARMOTTA_HOME once; the returned command carries it and the Zig environment for runZig and
 // createBuildDirectory. Finding an existing Zig writes nothing, so it also works with a read-only home.
 export async function ensureZig(version?: string): Promise<ZigCommand> {
@@ -287,7 +311,9 @@ export async function ensureZig(version?: string): Promise<ZigCommand> {
     if (!/^\d+\.\d+\.\d+$/.test(version)) throw new ZigVersionInvalidError(version);
   }
   const home = marmottaHome();
-  return withZigEnvironment(home, await findZig(home, version));
+  const zigDirectory = configuredZigDirectory();
+  const zig = zigDirectory === undefined ? await findZig(home, version) : await configuredZig(zigDirectory);
+  return withZigEnvironment(home, zig);
 }
 
 

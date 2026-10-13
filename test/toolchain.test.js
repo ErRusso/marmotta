@@ -45,7 +45,7 @@ async function withToolchainEnvironment(run) {
     };
     // Keep tests independent of the developer's own settings (Windows variable names are case-insensitive).
     for (const name of Object.keys(env)) {
-      if (['MARMOTTA_HOME', 'ZIG_GLOBAL_CACHE_DIR'].includes(name.toUpperCase())) delete env[name];
+      if (['MARMOTTA_HOME', 'MARMOTTA_ZIG_DIR', 'ZIG_GLOBAL_CACHE_DIR'].includes(name.toUpperCase())) delete env[name];
     }
     await run({ directory, home, env });
   } finally {
@@ -394,5 +394,64 @@ test('moves the Zig global cache into MARMOTTA_HOME unless one is configured', a
 
     const explicitCache = join(directory, 'explicit-cache');
     assert.deepEqual(await recordCache({ ...env, ZIG_GLOBAL_CACHE_DIR: explicitCache }), { cache: explicitCache });
+  });
+});
+
+test('uses the Zig in MARMOTTA_ZIG_DIR instead of PATH, managed versions or a download', async () => {
+  await withToolchainEnvironment(async ({ directory, home, env }) => {
+    const zigDirectory = join(directory, 'existing-zig');
+    await mkdir(zigDirectory);
+    await writeFile(join(zigDirectory, executableName), '', { mode: 0o755 });
+    const managedToolchain = join(home, '.marmotta', 'toolchains', 'zig', zigVersion);
+    await mkdir(managedToolchain, { recursive: true });
+    await writeFile(join(managedToolchain, executableName), '');
+    env.MARMOTTA_ZIG_DIR = zigDirectory;
+
+    // Unpinned, Zig is on PATH; zigVersion is managed; newerVersion would have to be downloaded.
+    for (const version of [undefined, zigVersion, newerVersion]) {
+      const result = runEnsureZig({ env, version, index: releaseIndex(zigVersion, newerVersion), archivePath: null });
+
+      assert.equal(result.executable, join(zigDirectory, executableName), JSON.stringify(result));
+      assert.deepEqual(result.urls, []);
+    }
+  });
+});
+
+test('fails instead of downloading Zig when MARMOTTA_ZIG_DIR has no runnable Zig', async () => {
+  await withToolchainEnvironment(async ({ directory, env }) => {
+    const zigDirectory = join(directory, 'missing-zig');
+    await mkdir(zigDirectory);
+    env.MARMOTTA_ZIG_DIR = zigDirectory;
+    const expected = join(zigDirectory, executableName);
+
+    const missing = runEnsureZig({ env, version: zigVersion, index: releaseIndex(zigVersion), archivePath: null });
+    assert.equal(missing.code, 'MARMOTTA_ZIG_DIR_UNAVAILABLE');
+    assert.equal(missing.message, `MARMOTTA_ZIG_DIR does not contain a Zig executable that can be run: ${expected} (ENOENT).`);
+    assert.deepEqual(missing.urls, []);
+
+    if (process.platform !== 'win32') {
+      // Windows has no execute permission to check.
+      await writeFile(expected, '', { mode: 0o644 });
+      const notExecutable = runEnsureZig({ env, version: zigVersion, index: releaseIndex(zigVersion), archivePath: null });
+      assert.equal(notExecutable.code, 'MARMOTTA_ZIG_DIR_UNAVAILABLE');
+      assert.match(notExecutable.message, /\(EACCES\)\.$/);
+      assert.deepEqual(notExecutable.urls, []);
+    }
+  });
+});
+
+test('rejects a relative MARMOTTA_ZIG_DIR and treats an empty one as unset', async () => {
+  await withToolchainEnvironment(async ({ directory, env }) => {
+    for (const value of ['relative/zig', '~/zig', ' ', `${directory} `]) {
+      env.MARMOTTA_ZIG_DIR = value;
+      const result = runEnsureZig({ env, version: zigVersion, index: releaseIndex(zigVersion), archivePath: null });
+
+      assert.equal(result.code, 'MARMOTTA_ZIG_DIR_INVALID', JSON.stringify(value));
+      assert.ok(result.message.includes(JSON.stringify(value)), result.message);
+      assert.deepEqual(result.urls, []);
+    }
+
+    env.MARMOTTA_ZIG_DIR = '';
+    assert.equal(runEnsureZig({ env, index: releaseIndex(zigVersion), archivePath: null }).executable, 'zig');
   });
 });

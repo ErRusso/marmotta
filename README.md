@@ -35,6 +35,7 @@ Marmotta builds Node.js native addons written in C or C++ with [Node-API](https:
 - Reuse node-gyp-oriented sources that use `NODE_GYP_MODULE_NAME`.
 - Build for the host platform or pass a Zig target triple for cross-compilation.
 - Install Zig automatically when a suitable compiler is not already on `PATH`.
+- Use a Zig installation that already exists on the system with `MARMOTTA_ZIG_DIR`, for example where downloads are blocked.
 - Load the same addon in Node.js, Electron, Deno, and Bun. On Windows, Marmotta binds Node-API functions to the process that loads the addon instead of to `node.exe`, so no delay-load hook is needed.
 
 ## Requirements
@@ -142,7 +143,7 @@ For `.js` files, use the module format selected by your project's `package.json`
 | `cxxFlags` | string array | `[]` | Additional compiler flags for C++ sources. |
 | `linkerFlags` | string array | `[]` | Additional linker flags. |
 | `outputDir` | string | `.` | Output directory. The generated addon is `<outputDir>/<name>.node`. |
-| `zigVersion` | string | Zig from `PATH`, else local/latest stable | Pin an exact stable Zig version, for example `0.14.1`. When set, Marmotta uses or downloads this managed version instead of using Zig from `PATH`. |
+| `zigVersion` | string | Zig from `PATH`, else local/latest stable | Pin an exact stable Zig version, for example `0.14.1`. When set, Marmotta uses or downloads this managed version instead of using Zig from `PATH`. Ignored when `MARMOTTA_ZIG_DIR` is set. |
 
 Each array field must contain only strings. During source discovery Marmotta ignores `.git`, `.marmotta`, `build`, `dist`, and `node_modules`. Explicit source and include paths must be relative to the project directory or absolute paths; each source must exist and be a file.
 
@@ -185,7 +186,7 @@ Use a target triple supported by Zig for the intended target. Cross-compilation 
 
 ## Zig toolchain
 
-Without a `zigVersion` pin, Marmotta uses `zig` from `PATH` when available, then a locally managed version, and otherwise downloads the latest stable Zig release for the supported host platform into the Marmotta home directory (see [Marmotta home directory](#marmotta-home-directory)). If `zigVersion` is set, Marmotta ignores `PATH` and selects that exact managed version, downloading it if necessary. If the pinned version is not available for the host platform, the command fails instead of falling back to another version. If the download index includes a checksum, Marmotta verifies the downloaded archive.
+Without a `zigVersion` pin, Marmotta uses `zig` from `PATH` when available, then a locally managed version, and otherwise downloads the latest stable Zig release for the supported host platform into the Marmotta home directory (see [Marmotta home directory](#marmotta-home-directory)). If `zigVersion` is set, Marmotta ignores `PATH` and selects that exact managed version, downloading it if necessary. If the pinned version is not available for the host platform, the command fails instead of falling back to another version. If the download index includes a checksum, Marmotta verifies the downloaded archive. If `MARMOTTA_ZIG_DIR` is set, Marmotta uses only that Zig and never downloads one (see [Existing Zig installation](#existing-zig-installation)).
 
 Prepare Zig in advance:
 
@@ -201,6 +202,21 @@ npx marmotta remove 0.14.1
 ```
 
 `list` and `remove` operate only on versions managed by Marmotta; they do not list, uninstall, or modify a system Zig executable found on `PATH`.
+
+### Existing Zig installation
+
+Set `MARMOTTA_ZIG_DIR` to the directory of a Zig installation that already exists on the system, for example when downloads are blocked or the toolchain is provided by the organization and cannot be changed:
+
+```sh
+export MARMOTTA_ZIG_DIR=/opt/zig-x86_64-linux-0.14.1
+npx marmotta build
+```
+
+- The directory must contain the Zig executable (`zig`, or `zig.exe` on Windows), as in the archives published on ziglang.org.
+- Marmotta uses this Zig for every command and never downloads Zig while the variable is set. It takes precedence over Zig on `PATH` and over the versions managed by Marmotta, and a `zigVersion` pin in the configuration is ignored.
+- If the directory does not contain a Zig executable that can be run, the command fails with `MARMOTTA_ZIG_DIR_UNAVAILABLE` and names the expected path. Marmotta does not fall back to another Zig.
+- The value follows the same rules as `MARMOTTA_HOME`: it must be an absolute path without leading or trailing whitespace, otherwise it is rejected with `MARMOTTA_ZIG_DIR_INVALID`. An empty value is treated as unset.
+- Marmotta never writes to this directory, and `list` and `remove` do not include or change it. Temporary build files still go to the Marmotta home directory, and Zig's global cache follows the rules described there.
 
 ### Marmotta home directory
 

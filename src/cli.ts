@@ -26,7 +26,8 @@ Options:
   -v, --version       show the version
 
 Environment:
-  MARMOTTA_HOME       absolute path that replaces ~/.marmotta as Marmotta's root directory`;
+  MARMOTTA_HOME       absolute path that replaces ~/.marmotta as Marmotta's root directory
+  MARMOTTA_ZIG_DIR    absolute path of an existing Zig installation to use instead of downloading Zig`;
 
 type ParsedArgs = { command: string; positional: string[]; options: BuildOptions; help: boolean };
 

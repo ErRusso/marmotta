@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { copyFile, link, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { delimiter, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
@@ -11,10 +12,15 @@ const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 // Every CLI process inherits this environment: run it with Marmotta's defaults, not the developer's own settings.
 // node --test runs each file in its own process, and Windows variable names are case-insensitive.
 for (const name of Object.keys(process.env)) {
-  if (['MARMOTTA_HOME', 'ZIG_GLOBAL_CACHE_DIR'].includes(name.toUpperCase())) delete process.env[name];
+  if (['MARMOTTA_HOME', 'MARMOTTA_ZIG_DIR', 'ZIG_GLOBAL_CACHE_DIR'].includes(name.toUpperCase())) delete process.env[name];
 }
 
 const zigAvailable = spawnSync('zig', ['version'], { stdio: 'ignore' }).status === 0;
+// The installation directory of the Zig on PATH stands in for an existing toolchain that cannot be replaced.
+const pathZigDirectory = zigAvailable
+  ? (process.env.PATH ?? '').split(delimiter)
+    .find((entry) => isAbsolute(entry) && existsSync(join(entry, process.platform === 'win32' ? 'zig.exe' : 'zig')))
+  : undefined;
 // Runtimes installed through npm are .cmd shims on Windows, which only run through a shell.
 const runtimeAvailable = (command) => spawnSync(command, ['--version'], {
   stdio: 'ignore',
@@ -34,6 +40,7 @@ test('shows help without initializing the toolchain', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /configure/);
   assert.match(result.stdout, /build/);
+  assert.match(result.stdout, /MARMOTTA_ZIG_DIR/);
 });
 
 test('reports an unknown command with an error code', () => {
@@ -213,6 +220,41 @@ NAPI_MODULE_INIT() {
         assert.equal(runtimeResult.stdout.trim(), 'hello world');
       });
     }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('builds with the Zig in MARMOTTA_ZIG_DIR without downloading the pinned version', {
+  skip: !pathZigDirectory && 'Zig is not on PATH',
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'marmotta-zig-dir-'));
+  const source = `#include <node_api.h>
+
+static napi_value Hello(napi_env env, napi_callback_info info) {
+  napi_value result;
+  napi_create_string_utf8(env, "world", NAPI_AUTO_LENGTH, &result);
+  return result;
+}
+
+NAPI_MODULE_INIT() {
+  napi_value fn;
+  napi_create_function(env, "hello", NAPI_AUTO_LENGTH, Hello, NULL, &fn);
+  napi_set_named_property(env, exports, "hello", fn);
+  return exports;
+}
+`;
+
+  try {
+    await writeFile(join(directory, 'hello.c'), source);
+    // Zig 0.0.1 was never released, so the build only succeeds if Marmotta does not try to download it.
+    await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ name: 'hello', zigVersion: '0.0.1' }));
+    const result = spawnSync(process.execPath, [cli, 'build', '-C', directory], {
+      encoding: 'utf8',
+      env: { ...process.env, MARMOTTA_ZIG_DIR: pathZigDirectory },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assertAddonHello(join(directory, 'hello.node'));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

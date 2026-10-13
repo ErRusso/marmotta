@@ -61,6 +61,16 @@ export const MarmottaHomeUnavailableError = createError(
   'Unable to create or write to %s (%s).',
   FAILURE_EXIT_CODE,
 );
+export const MarmottaZigDirInvalidError = createError(
+  'MARMOTTA_ZIG_DIR_INVALID',
+  'MARMOTTA_ZIG_DIR must be an absolute path without leading or trailing whitespace: %j',
+  USAGE_EXIT_CODE,
+);
+export const MarmottaZigDirUnavailableError = createError(
+  'MARMOTTA_ZIG_DIR_UNAVAILABLE',
+  'MARMOTTA_ZIG_DIR does not contain a Zig executable that can be run: %s (%s).',
+  FAILURE_EXIT_CODE,
+);
 
 export const ZigDiscoveryFailedError = createError('ZIG_DISCOVERY_FAILED', '%s', FAILURE_EXIT_CODE);
 export const ZigDownloadFailedError = createError('ZIG_DOWNLOAD_FAILED', '%s', FAILURE_EXIT_CODE);
