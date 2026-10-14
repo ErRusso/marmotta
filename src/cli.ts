@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { build, clean, configure, type BuildOptions } from './build.js';
 import { CliArgumentError, CliCommandError, normalizeError } from './errors.js';
 import { ensureZig, listZigVersions, removeZigVersion } from './toolchain.js';
-import { logger } from './logger.js';
+import { logger, type LogFormat } from './logger.js';
 
 const usage = `Marmotta - build tool for Node.js addons with Zig
 
@@ -23,6 +23,7 @@ Options:
   -o, --output-dir    directory where <name>.node is generated
       --target        Zig target, e.g. aarch64-macos or x86_64-windows
       --debug         compile without optimizations
+      --json          output machine-readable JSON lines
   -h, --help          show this help
   -v, --version       show the version
 
@@ -42,6 +43,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     const token = tokens[index];
     if (token === '-h' || token === '--help') help = true;
     else if (token === '--debug') options.debug = true;
+    else if (token === '--json') options.logFormat = 'json';
     else if (token === '-C' || token === '--directory' || token === '-o' || token === '--output-dir' || token === '--target') {
       const value = tokens[index + 1];
       if (!value || value.startsWith('-')) {
@@ -62,6 +64,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   logger.setDebugMode(parsed.options.debug ?? false);
+  logger.setFormat(parsed.options.logFormat ?? 'text');
 
   if (parsed.help) {
     logger.info(usage);

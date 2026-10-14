@@ -174,6 +174,7 @@ Run `marmotta --help` or `npx marmotta --help` for the built-in usage summary.
 | `-o, --output-dir <path>` | `build`, `rebuild`, `clean` | Override `outputDir`. Relative paths are resolved from the project directory. |
 | `--target <triple>` | `build`, `rebuild` | Zig target triple used for cross-compilation. |
 | `--debug` | `build`, `rebuild` | Compile without optimization and include debug information (`-O0 -g` instead of `-O2`). |
+| `--json` | Any command | Emit one valid JSON object per line to stdout (information/debug) or stderr (warning/error), suitable for CI logs. |
 | `-h, --help` | Any command | Show help. |
 | `-v, --version` | Top-level command | Show the Marmotta version. |
 
@@ -182,6 +183,8 @@ For example, request a build for ARM64 macOS:
 ```sh
 npx marmotta build --target aarch64-macos
 ```
+
+Use `--json` in CI when another process needs to consume Marmotta's output. Each log entry is a complete JSON Lines record; informational and debug records go to stdout, while warnings and errors go to stderr.
 
 Use a target triple supported by Zig for the intended target. Cross-compilation does not run the resulting addon on the host; load it on a compatible target system.
 

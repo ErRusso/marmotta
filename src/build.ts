@@ -4,7 +4,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { loadProject, type ProjectConfig } from './project.js';
 import { createBuildDirectory, ensureZig, runZig } from './toolchain.js';
 import { hostImportsSource, readDefSymbols } from './windows-host.js';
-import { logger } from './logger.js';
+import { logger, type LogFormat } from './logger.js';
 
 const require = createRequire(import.meta.url);
 type NodeApiHeaders = { include_dir: string; def_paths: { node_api_def: string } };
@@ -15,6 +15,7 @@ export type BuildOptions = {
   outputDir?: string;
   target?: string;
   debug?: boolean;
+  logFormat?: LogFormat;
 };
 
 function isCpp(source: string): boolean {

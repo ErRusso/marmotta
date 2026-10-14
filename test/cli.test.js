@@ -260,6 +260,28 @@ NAPI_MODULE_INIT() {
   }
 });
 
+test('supports JSON Lines output for CI consumers', () => {
+  const help = spawnSync(process.execPath, [cli, '--help', '--json'], { encoding: 'utf8' });
+  assert.equal(help.status, 0, help.stderr || help.stdout);
+  assert.equal(help.stderr.length, 0);
+
+  const entry = JSON.parse(help.stdout);
+  assert.equal(entry.level, 'info');
+  assert.equal(typeof entry.message, 'string');
+});
+
+test('reports CLI errors as structured JSON Lines', () => {
+  const result = spawnSync(process.execPath, [cli, 'unknown-command', '--json'], {
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout.length, 0);
+
+  const entry = JSON.parse(result.stderr);
+  assert.equal(entry.level, 'error');
+  assert.match(entry.message, /Unknown command/);
+});
+
 test('reports an invalid MARMOTTA_HOME without breaking help', () => {
   const env = { ...process.env, MARMOTTA_HOME: 'relative/marmotta-home' };
   const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8', env });
@@ -268,5 +290,5 @@ test('reports an invalid MARMOTTA_HOME without breaking help', () => {
 
   const list = spawnSync(process.execPath, [cli, 'list'], { encoding: 'utf8', env });
   assert.equal(list.status, 2);
-  assert.match(list.stderr, /^marmotta \[MARMOTTA_HOME_INVALID\]: MARMOTTA_HOME must be an absolute path/);
+  assert.match(list.stderr, /^\[ERROR\] marmotta \[MARMOTTA_HOME_INVALID\]: MARMOTTA_HOME must be an absolute path/);
 });
