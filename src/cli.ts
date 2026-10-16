@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { build, clean, configure, type BuildOptions } from './build.js';
 import { CliArgumentError, CliCommandError, normalizeError } from './errors.js';
 import { ensureZig, listZigVersions, removeZigVersion } from './toolchain.js';
-import { logger, type LogFormat } from './logger.js';
+import { logger } from './logger.js';
 
 const usage = `Marmotta - build tool for Node.js addons with Zig
 
@@ -29,23 +29,27 @@ Options:
 
 Environment:
   MARMOTTA_HOME       absolute path that replaces ~/.marmotta as Marmotta's root directory
-  MARMOTTA_ZIG_DIR    absolute path of an existing Zig installation to use instead of downloading Zig`;
+  MARMOTTA_ZIG_DIR    absolute path of an existing Zig installation to use instead of downloading Zig
+  MARMOTTA_LOG        minimum log level: trace, debug, info (default), warn, error, fatal, silent`;
 
-type ParsedArgs = { command: string; positional: string[]; options: BuildOptions; help: boolean };
+type ParsedArgs = { command: string; positional: string[]; options: BuildOptions; help: boolean; version: boolean };
 
+// Flags are recognized before or after the command, so `marmotta --json build` and
+// `marmotta build --json` behave the same. The first positional token names the command.
 function parseArgs(argv: string[]): ParsedArgs {
-  const [command = 'help', ...tokens] = argv;
   const options: BuildOptions = { directory: process.cwd() };
-  const positional: string[] = [];
-  let help = command === 'help' || command === '--help' || command === '-h';
+  const positionals: string[] = [];
+  let help = false;
+  let version = false;
 
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
     if (token === '-h' || token === '--help') help = true;
+    else if (token === '-v' || token === '--version') version = true;
     else if (token === '--debug') options.debug = true;
-    else if (token === '--json') options.logFormat = 'json';
+    else if (token === '--json') { /* the output format is applied before parsing; see main() */ }
     else if (token === '-C' || token === '--directory' || token === '-o' || token === '--output-dir' || token === '--target') {
-      const value = tokens[index + 1];
+      const value = argv[index + 1];
       if (!value || value.startsWith('-')) {
         throw new CliArgumentError(`Missing value for ${token}`);
       }
@@ -55,22 +59,32 @@ function parseArgs(argv: string[]): ParsedArgs {
       else options.target = value;
     } else if (token.startsWith('-')) {
       throw new CliArgumentError(`Unknown option: ${token}`);
-    } else positional.push(token);
+    } else positionals.push(token);
   }
 
-  return { command, positional, options, help };
+  const [command, ...rest] = positionals;
+  return {
+    command: command ?? 'help',
+    positional: rest,
+    options,
+    // No positional token means help, unless the user asked for --version instead.
+    help: help || command === 'help' || (command === undefined && !version),
+    version,
+  };
 }
 
 async function main(): Promise<void> {
-  const parsed = parseArgs(process.argv.slice(2));
-  logger.setDebugMode(parsed.options.debug ?? false);
-  logger.setFormat(parsed.options.logFormat ?? 'text');
+  const argv = process.argv.slice(2);
+  // The output format is resolved from the raw arguments before parsing, so argument-parsing
+  // failures are reported in the requested format too.
+  logger.setFormat(argv.includes('--json') ? 'json' : 'text');
+  const parsed = parseArgs(argv);
 
   if (parsed.help) {
     logger.info(usage);
     return;
   }
-  if (parsed.command === '--version' || parsed.command === '-v') {
+  if (parsed.version) {
     logger.info('marmotta 0.6.0');
     return;
   }
@@ -95,7 +109,10 @@ async function main(): Promise<void> {
       break;
     case 'list': {
       const versions = await listZigVersions();
-      logger.info(versions.length > 0 ? versions.join('\n') : 'No Zig versions installed by Marmotta.');
+      if (versions.length === 0) logger.info('No Zig versions installed by Marmotta.');
+      // JSON consumers get one record per version; text mode prints the list unchanged.
+      else if (logger.format === 'json') for (const version of versions) logger.info(version);
+      else logger.info(versions.join('\n'));
       break;
     }
     case 'remove': {
@@ -114,6 +131,12 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   const normalized = normalizeError(error);
-  logger.error(`marmotta [${normalized.code}]: ${normalized.message}`);
+  // Text mode keeps the historical "marmotta [CODE]: message" line; JSON records carry the code
+  // and exit code as structured fields instead of embedding them in the message.
+  if (logger.format === 'json') {
+    logger.error(normalized.message, { code: normalized.code, exitCode: normalized.exitCode });
+  } else {
+    logger.error(`marmotta [${normalized.code}]: ${normalized.message}`);
+  }
   process.exitCode = normalized.exitCode;
 });
