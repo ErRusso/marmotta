@@ -4,6 +4,7 @@ import { constants } from 'node:fs';
 import { access, chmod, mkdtemp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve, win32 } from 'node:path';
+import { logger } from './logger.js';
 import {
   MarmottaDirectoryFailedError,
   MarmottaHomeInvalidError,
@@ -119,9 +120,49 @@ function prepareZigCache(command: ZigCommand): Promise<void> {
   return prepared;
 }
 
+// Re-emits a captured child stream one line at a time, buffering the trailing partial line until the
+// stream ends, so each forwarded line becomes its own log record.
+function forwardLines(stream: NodeJS.ReadableStream | null, emit: (line: string) => void): void {
+  if (!stream) return;
+  let pending = '';
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk: string) => {
+    pending += chunk;
+    let newline = pending.indexOf('\n');
+    while (newline !== -1) {
+      const line = pending.slice(0, newline).replace(/\r$/, '');
+      pending = pending.slice(newline + 1);
+      if (line.length > 0) emit(line);
+      newline = pending.indexOf('\n');
+    }
+  });
+  const flush = () => {
+    const line = pending.replace(/\r$/, '');
+    pending = '';
+    if (line.length > 0) emit(line);
+  };
+  stream.on('end', flush);
+  // A stream error is reported by the child's own close event; swallowing it here only prevents an
+  // unhandled 'error' event from crashing the process while the output was being reformatted.
+  stream.on('error', () => {});
+}
+
 function run(executable: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: options.cwd, env: options.env, stdio: 'inherit' });
+    // JSON output promises one JSON object per line, so raw zig/tar output cannot inherit the
+    // terminal in that mode: it is captured and re-emitted as records instead. Text mode keeps the
+    // live, streaming output users expect from a build.
+    const capture = logger.format === 'json';
+    const child = spawn(executable, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
+    });
+    if (capture) {
+      const command = basename(executable);
+      forwardLines(child.stdout, (line) => logger.info(line, { command }));
+      forwardLines(child.stderr, (line) => logger.warn(line, { command }));
+    }
     child.once('error', (cause: Error) => {
       reject(new ToolchainSpawnFailedError(basename(executable), { cause }));
     });
