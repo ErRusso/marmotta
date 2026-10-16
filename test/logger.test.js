@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import { Logger } from '../dist/logger.js';
 
 function capture(format = 'json', level = 'info') {
@@ -126,13 +125,14 @@ test('falls back to info for an invalid MARMOTTA_LOG value', () => {
 });
 
 test('MARMOTTA_LOG configures the default logger level', () => {
-  const module = fileURLToPath(new URL('../dist/logger.js', import.meta.url));
-  const script = `import(${JSON.stringify(module)}).then(({ logger }) => { logger.info('hidden'); logger.error('shown'); });`;
+  // A file:// URL imports correctly on Windows, where "D:\..." is read as a URL scheme.
+  const moduleUrl = new URL('../dist/logger.js', import.meta.url).href;
+  const script = `import(${JSON.stringify(moduleUrl)}).then(({ logger }) => { logger.info('hidden'); logger.error('shown'); });`;
   const result = spawnSync(process.execPath, ['-e', script], {
     encoding: 'utf8',
     env: { ...process.env, MARMOTTA_LOG: 'error' },
   });
 
   assert.equal(result.stdout, '');
-  assert.equal(result.stderr, 'shown\n');
+  assert.equal(result.stderr.trim(), 'shown');
 });
