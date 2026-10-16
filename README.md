@@ -174,7 +174,7 @@ Run `marmotta --help` or `npx marmotta --help` for the built-in usage summary.
 | `-o, --output-dir <path>` | `build`, `rebuild`, `clean` | Override `outputDir`. Relative paths are resolved from the project directory. |
 | `--target <triple>` | `build`, `rebuild` | Zig target triple used for cross-compilation. |
 | `--debug` | `build`, `rebuild` | Compile without optimization and include debug information (`-O0 -g` instead of `-O2`). |
-| `--json` | Any command | Emit one valid JSON object per line to stdout (information/debug) or stderr (warning/error), suitable for CI logs. |
+| `--json` | Any command | Emit machine-readable JSON Lines instead of plain text. Recognized before or after the command. |
 | `-h, --help` | Any command | Show help. |
 | `-v, --version` | Top-level command | Show the Marmotta version. |
 
@@ -184,9 +184,33 @@ For example, request a build for ARM64 macOS:
 npx marmotta build --target aarch64-macos
 ```
 
-Use `--json` in CI when another process needs to consume Marmotta's output. Each log entry is a complete JSON Lines record; informational and debug records go to stdout, while warnings and errors go to stderr.
+Use `--json` in CI when another process needs to consume Marmotta's output; see [Logging](#logging) for the record format and the `MARMOTTA_LOG` variable.
 
 Use a target triple supported by Zig for the intended target. Cross-compilation does not run the resulting addon on the host; load it on a compatible target system.
+
+### Logging
+
+By default Marmotta writes plain text: status messages on stdout and errors on stderr, with no level prefixes, so scripts that read `marmotta --version` or `marmotta list` keep working unchanged.
+
+Pass `--json` when another process needs to consume the output, as in CI. The flag is recognized before or after the command, and each record is one JSON object on its own line (JSON Lines):
+
+```sh
+npx marmotta build --json
+npx marmotta --json list
+```
+
+```json
+{"level":"info","time":1730000000000,"message":"Addon built: /project/build/hello.node"}
+{"level":"error","time":1730000000001,"data":{"code":"CLI_ARGUMENT_ERROR","exitCode":2},"message":"Unknown option: --bogus"}
+```
+
+- `level` is a string such as `info`, `warn`, or `error`. Informational records go to stdout; warnings and errors go to stderr.
+- `message` is the human-readable text, and `data` carries the record's structured context when there is any, such as the error `code` and `exitCode`.
+- Output from the Zig and `tar` child processes is captured and re-emitted as records, so every line printed in `--json` mode is valid JSON.
+- Set `MARMOTTA_LOG` to the minimum level to report: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `silent`. The default is `info`, which hides `debug` records. An unrecognized value is ignored with a warning.
+
+`MARMOTTA_LOG` applies to both formats; it only changes which records are emitted, not the shape of the output.
+
 
 ## Zig toolchain
 

@@ -56,9 +56,7 @@ test('classifies invalid options as argument errors', () => {
   assert.match(result.stderr, /CLI_ARGUMENT_ERROR/);
 });
 
-test('builds and loads a C Node-API addon with Zig', { skip: !zigAvailable }, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'marmotta-addon-'));
-  const source = `#include <assert.h>
+const addonSource = `#include <assert.h>
 #include <node_api.h>
 
 static napi_value Method(napi_env env, napi_callback_info info) {
@@ -79,6 +77,10 @@ static napi_value Initialize(napi_env env, napi_value exports) {
 
 NAPI_MODULE(NODE_GYP_MODULE_NAME, Initialize)
 `;
+
+test('builds and loads a C Node-API addon with Zig', { skip: !zigAvailable }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'marmotta-addon-'));
+  const source = addonSource;
 
   try {
     await mkdir(join(directory, 'build'));
@@ -264,10 +266,23 @@ test('supports JSON Lines output for CI consumers', () => {
   const help = spawnSync(process.execPath, [cli, '--help', '--json'], { encoding: 'utf8' });
   assert.equal(help.status, 0, help.stderr || help.stdout);
   assert.equal(help.stderr.length, 0);
+  assert.ok(help.stdout.endsWith('\n'), 'JSON records must be newline-terminated');
 
-  const entry = JSON.parse(help.stdout);
+  const lines = help.stdout.split('\n').filter((line) => line.length > 0);
+  assert.equal(lines.length, 1);
+  const entry = JSON.parse(lines[0]);
   assert.equal(entry.level, 'info');
   assert.equal(typeof entry.message, 'string');
+});
+
+test('recognizes --json before the command', () => {
+  const result = spawnSync(process.execPath, [cli, '--json', 'unknown-command'], { encoding: 'utf8' });
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout.length, 0);
+
+  const entry = JSON.parse(result.stderr);
+  assert.equal(entry.level, 'error');
+  assert.match(entry.message, /Unknown command/);
 });
 
 test('reports CLI errors as structured JSON Lines', () => {
@@ -280,6 +295,62 @@ test('reports CLI errors as structured JSON Lines', () => {
   const entry = JSON.parse(result.stderr);
   assert.equal(entry.level, 'error');
   assert.match(entry.message, /Unknown command/);
+  assert.equal(entry.data.code, 'CLI_COMMAND_ERROR');
+  assert.equal(entry.data.exitCode, 2);
+});
+
+test('reports argument errors as structured JSON Lines', () => {
+  for (const args of [['build', '--bogus', '--json'], ['build', '--json', '--target']]) {
+    const result = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 2, args.join(' '));
+    assert.equal(result.stdout.length, 0, args.join(' '));
+
+    const entry = JSON.parse(result.stderr);
+    assert.equal(entry.level, 'error', args.join(' '));
+    assert.equal(entry.data.code, 'CLI_ARGUMENT_ERROR', args.join(' '));
+  }
+});
+
+test('keeps the plain text output for --version and --help', () => {
+  const version = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8' });
+  assert.equal(version.status, 0, version.stderr);
+  assert.equal(version.stdout, 'marmotta 0.6.0\n');
+  assert.equal(version.stderr.length, 0);
+
+  const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
+  assert.equal(help.status, 0, help.stderr);
+  const lines = help.stdout.split('\n');
+  assert.ok(lines.length > 10, 'help must not be collapsed onto a single line');
+  assert.equal(lines[0], 'Marmotta - build tool for Node.js addons with Zig');
+});
+
+test('emits one JSON record per line for a multi-step build', { skip: !zigAvailable }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'marmotta-json-lines-'));
+  try {
+    await writeFile(join(directory, 'hello.c'), addonSource);
+    await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ name: 'hello' }));
+
+    const result = spawnSync(process.execPath, [cli, 'rebuild', '-C', directory, '--json'], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.ok(result.stdout.endsWith('\n'), 'stdout must end with a newline');
+
+    const lines = result.stdout.split('\n');
+    assert.equal(lines.at(-1), '');
+    const entries = lines.slice(0, -1).map((line) => JSON.parse(line));
+    assert.ok(entries.length >= 2, `expected several records, got ${entries.length}`);
+    assert.ok(entries.every((entry) => typeof entry.level === 'string' && typeof entry.message === 'string'));
+    assert.ok(entries.some((entry) => /Removed/.test(entry.message)));
+    assert.ok(entries.some((entry) => /Addon built/.test(entry.message)));
+
+    for (const line of result.stderr.split('\n').filter((line) => line.length > 0)) {
+      assert.doesNotThrow(() => JSON.parse(line), `stderr line is not JSON: ${line}`);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('reports an invalid MARMOTTA_HOME without breaking help', () => {
@@ -290,5 +361,5 @@ test('reports an invalid MARMOTTA_HOME without breaking help', () => {
 
   const list = spawnSync(process.execPath, [cli, 'list'], { encoding: 'utf8', env });
   assert.equal(list.status, 2);
-  assert.match(list.stderr, /^\[ERROR\] marmotta \[MARMOTTA_HOME_INVALID\]: MARMOTTA_HOME must be an absolute path/);
+  assert.match(list.stderr, /^marmotta \[MARMOTTA_HOME_INVALID\]: MARMOTTA_HOME must be an absolute path/);
 });
