@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Smoke-tests a standalone Marmotta executable the way a user without Node.js would run it:
-// usage: node scripts/smoke-test.mjs <path-to-executable> [--quick]
+// usage: node scripts/smoke.mjs <path-to-executable> [--quick]
 //
 // The binary must report the package version, install Zig, compile the README's hello addon, and
 // the resulting .node file must load in the Node.js running this script. Configuration that must

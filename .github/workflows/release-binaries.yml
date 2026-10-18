@@ -3,7 +3,7 @@ name: Release binaries
 # Builds the standalone Marmotta executables with `bun build --compile` and attaches them to the
 # GitHub release of the tag, together with SHA256SUMS and build provenance attestations.
 # Bun cross-compiles every target, but each job runs on a runner matching its target so the
-# executable is also smoke-tested natively (the musl binaries only run on Alpine, so those two
+# executable is also tested natively (the musl binaries only run on Alpine, so those two
 # are quick-tested inside an Alpine container instead).
 
 on:
@@ -103,7 +103,7 @@ jobs:
       - name: Smoke test (native)
         if: matrix.smoke == 'full'
         shell: bash
-        run: node scripts/smoke-test.mjs "out/${{ steps.meta.outputs.file }}"
+        run: node scripts/smoke.mjs "out/${{ steps.meta.outputs.file }}"
 
       - name: Smoke test (Alpine container)
         if: matrix.smoke == 'alpine'

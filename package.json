@@ -44,11 +44,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check:version": "node scripts/check-version.mjs",
-    "test": "npm run check:version && npm run build && node --test test/",
+    "test": "npm run check:version && npm run build && node --test",
     "build:headers": "node scripts/build-headers-asset.mjs",
     "build:sea": "node scripts/build-sea.mjs",
     "build:bun": "node scripts/build-bun.mjs",
-    "smoke": "node scripts/smoke-test.mjs",
+    "smoke": "node scripts/smoke.mjs",
     "publish:all": "node scripts/publish.mjs"
   },
   "engines": {

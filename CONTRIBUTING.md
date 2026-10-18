@@ -47,7 +47,7 @@ not bump version numbers in pull requests.
 
 Pushing a `v*` tag triggers the `Release binaries` workflow, which builds the
 standalone executables for all supported platforms with `bun build --compile`,
-runs `scripts/smoke-test.mjs` against each one, and attaches them together with
+runs `scripts/smoke.mjs` against each one, and attaches them together with
 `SHA256SUMS` and provenance attestations to the GitHub release of that tag. The
 tag must match the version in `package.json` or the workflow fails. Maintainers
 can also run the workflow manually from the Actions tab to test it before
