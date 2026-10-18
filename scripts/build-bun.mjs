@@ -51,7 +51,6 @@ try {
       '--compile',
       `--target=${target}`,
       '--minify',
-      '--sourcemap',
       '--bytecode',
       // The executable runs inside the user's projects: a stray .env or bunfig.toml in an addon's
       // directory must not change its behavior.
@@ -66,14 +65,20 @@ try {
 
     // An unsigned macOS executable is rejected by Gatekeeper once it carries the quarantine
     // attribute; the JIT entitlements let the embedded JavaScriptCore engine compile code.
+    // codesign only exists on macOS, so a darwin target cross-built elsewhere stays unsigned and
+    // must be signed on a Mac before release (the release workflow builds darwin on macOS).
     if (target.includes('darwin')) {
       const entitlements = join(root, 'scripts', 'entitlements.plist');
-      const sign = spawnSync('codesign', ['--force', '--sign', '-', '--entitlements', entitlements, output], {
-        stdio: 'inherit',
-      });
-      if (sign.status !== 0) {
-        console.error('codesign failed; the executable will not pass Gatekeeper on macOS.');
-        process.exit(sign.status ?? 1);
+      if (process.platform !== 'darwin') {
+        console.warn(`warning: ${output} is unsigned; run codesign on macOS before releasing it.`);
+      } else {
+        const sign = spawnSync('codesign', ['--force', '--sign', '-', '--entitlements', entitlements, output], {
+          stdio: 'inherit',
+        });
+        if (sign.status !== 0) {
+          console.error('codesign failed; the executable will not pass Gatekeeper on macOS.');
+          process.exit(sign.status ?? 1);
+        }
       }
     }
     console.log(`Standalone executable ready: ${output}`);

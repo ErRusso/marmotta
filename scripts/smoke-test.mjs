@@ -4,7 +4,7 @@
 //
 // The binary must report the package version, install Zig, compile the README's hello addon, and
 // the resulting .node file must load in the Node.js running this script. Configuration that must
-// not reach the executable (NODE_OPTIONS, BUN_OPTIONS, a stray .env or bunfig.toml) is planted
+// not reach the executable (NODE_OPTIONS, a stray .env or bunfig.toml) is planted
 // around it. --quick limits the run to --version and --help, for targets that can only be executed
 // inside an emulated container.
 import assert from 'node:assert/strict';
@@ -31,8 +31,10 @@ function run(args, options = {}) {
 
 const hostileEnv = {
   ...cleanEnv,
+  // NODE_OPTIONS must not reach either executable. BUN_OPTIONS is deliberately absent: Bun parses
+  // it before the entrypoint runs, so a compiled executable cannot opt out of it, and unlike
+  // NODE_OPTIONS it only exists for users who explicitly configure Bun.
   NODE_OPTIONS: '--require /nonexistent/marmotta-smoke.js',
-  BUN_OPTIONS: '--preload /nonexistent/marmotta-smoke.js',
 };
 
 const version = run(['--version'], { env: hostileEnv });
@@ -47,18 +49,24 @@ if (!quick) {
     // Stray project configuration must not change the standalone executable's behavior.
     await writeFile(join(directory, '.env'), 'ZIG_GLOBAL_CACHE_DIR=/nonexistent\nMARMOTTA_ZIG_DIR=/nonexistent\n');
     await writeFile(join(directory, 'bunfig.toml'), '[install]\nregistry = "https://example.invalid"\n');
+    // The calls are assigned before the assert on purpose: `zig cc -O2` defines NDEBUG, and an
+    // assert() wrapping a call would compile the call away, leaving an addon with no properties.
     await writeFile(join(directory, 'hello.c'), `#include <assert.h>
 #include <node_api.h>
 
 static napi_value Hello(napi_env env, napi_callback_info info) {
+  napi_status status;
   napi_value result;
-  assert(napi_create_string_utf8(env, "world", NAPI_AUTO_LENGTH, &result) == napi_ok);
+  status = napi_create_string_utf8(env, "world", NAPI_AUTO_LENGTH, &result);
+  assert(status == napi_ok);
   return result;
 }
 
 static napi_value Initialize(napi_env env, napi_value exports) {
+  napi_status status;
   napi_property_descriptor desc = { "hello", 0, Hello, 0, 0, 0, napi_default, 0 };
-  assert(napi_define_properties(env, exports, 1, &desc) == napi_ok);
+  status = napi_define_properties(env, exports, 1, &desc);
+  assert(status == napi_ok);
   return exports;
 }
 
