@@ -1,0 +1,152 @@
+name: Release binaries
+
+# Builds the standalone Marmotta executables with `bun build --compile` and attaches them to the
+# GitHub release of the tag, together with SHA256SUMS and build provenance attestations.
+# Bun cross-compiles every target, but each job runs on a runner matching its target so the
+# executable is also smoke-tested natively (the musl binaries only run on Alpine, so those two
+# are quick-tested inside an Alpine container instead).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bun-linux-x64
+            platform: linux-x64
+            runner: ubuntu-latest
+            smoke: full
+          - target: bun-linux-arm64
+            platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            smoke: full
+          - target: bun-linux-x64-musl
+            platform: linux-x64-musl
+            runner: ubuntu-latest
+            smoke: alpine
+          - target: bun-linux-arm64-musl
+            platform: linux-arm64-musl
+            runner: ubuntu-24.04-arm
+            smoke: alpine
+          - target: bun-darwin-x64
+            platform: darwin-x64
+            runner: macos-15-intel
+            smoke: full
+          - target: bun-darwin-arm64
+            platform: darwin-arm64
+            runner: macos-latest
+            smoke: full
+          - target: bun-windows-x64
+            platform: windows-x64
+            runner: windows-latest
+            smoke: full
+            ext: .exe
+          - target: bun-windows-arm64
+            platform: windows-arm64
+            runner: windows-11-arm
+            smoke: full
+            ext: .exe
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned so release artifacts are reproducible; bump deliberately.
+          bun-version: 1.4.3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      - name: Build and test
+        shell: bash
+        run: npm test
+
+      - name: Build the Node-API headers archive
+        shell: bash
+        run: npm run build:headers
+
+      - name: Resolve the executable name
+        id: meta
+        shell: bash
+        run: echo "file=marmotta-v$(node -p "require('./package.json').version")-${{ matrix.platform }}${{ matrix.ext }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the standalone executable
+        shell: bash
+        run: node scripts/build-bun.mjs --target ${{ matrix.target }}
+
+      - name: Smoke test (native)
+        if: matrix.smoke == 'full'
+        shell: bash
+        run: node scripts/smoke-test.mjs "out/${{ steps.meta.outputs.file }}"
+
+      - name: Smoke test (Alpine container)
+        if: matrix.smoke == 'alpine'
+        shell: bash
+        run: |
+          expected="marmotta $(node -p "require('./package.json').version")"
+          actual="$(docker run --rm -v "$PWD/out:/out:ro" alpine:latest "/out/${{ steps.meta.outputs.file }}" --version)"
+          if [ "$actual" != "$expected" ]; then
+            echo "expected '$expected', got '$actual'" >&2
+            exit 1
+          fi
+          docker run --rm -v "$PWD/out:/out:ro" alpine:latest "/out/${{ steps.meta.outputs.file }}" --help > /dev/null
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: marmotta-${{ matrix.platform }}
+          path: out/marmotta-*
+          if-no-files-found: error
+
+  release:
+    name: Publish release assets
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download executables
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: sha256sum marmotta-* > SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/*
+
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

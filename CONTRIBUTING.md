@@ -45,6 +45,14 @@ from the organization.
 Declaring formal releases remains the prerogative of the lead maintainers. Do
 not bump version numbers in pull requests.
 
+Pushing a `v*` tag triggers the `Release binaries` workflow, which builds the
+standalone executables for all supported platforms with `bun build --compile`,
+runs `scripts/smoke-test.mjs` against each one, and attaches them together with
+`SHA256SUMS` and provenance attestations to the GitHub release of that tag. The
+tag must match the version in `package.json` or the workflow fails. Maintainers
+can also run the workflow manually from the Actions tab to test it before
+tagging; the binaries are then only uploaded as workflow artifacts.
+
 ## Changes to this arrangement
 
 This is an experiment and feedback is welcome! This document may also be subject

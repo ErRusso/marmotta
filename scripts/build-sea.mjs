@@ -20,7 +20,7 @@ const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'
 const suffix = process.platform === 'win32' ? '.exe' : '';
 // Named after the target platform, not the build host, so cross-checks and archives are unambiguous.
 const output = process.argv[2]
-  ?? join(root, 'build', `marmotta-${packageJson.version}-${process.platform}-${process.arch}${suffix}`);
+  ?? join(root, 'build', `marmotta-v${packageJson.version}-${process.platform}-${process.arch}${suffix}`);
 const bundle = join(root, 'build', 'marmotta.bundle.mjs');
 const headers = join(root, 'build', 'node-api-headers.tar');
 const seaConfig = join(root, 'build', 'sea-config.json');

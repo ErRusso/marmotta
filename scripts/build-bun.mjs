@@ -45,7 +45,7 @@ try {
   for (const target of targets) {
     const name = target.slice('bun-'.length);
     const suffix = target.includes('windows') ? '.exe' : '';
-    const output = join(root, 'out', `marmotta-${packageJson.version}-${name}${suffix}`);
+    const output = join(root, 'out', `marmotta-v${packageJson.version}-${name}${suffix}`);
     const result = spawnSync('bun', [
       'build', join(root, 'dist', 'cli.js'),
       '--compile',
