@@ -43,6 +43,16 @@ test('shows help without initializing the toolchain', () => {
   assert.match(result.stdout, /MARMOTTA_ZIG_DIR/);
 });
 
+test('reports the version declared in package.json', async () => {
+  // The CLI reads the version from src/version.ts because a standalone executable cannot read
+  // package.json at runtime; scripts/check-version.mjs and this test keep the two in step.
+  const packageJson = JSON.parse(await readFile(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'));
+  const result = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, `marmotta ${packageJson.version}\n`);
+  assert.equal(result.stderr, '');
+});
+
 test('reports an unknown command with an error code', () => {
   const result = spawnSync(process.execPath, [cli, 'unknown-command'], { encoding: 'utf8' });
   assert.equal(result.status, 2);

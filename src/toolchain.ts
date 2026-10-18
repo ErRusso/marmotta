@@ -25,7 +25,7 @@ const indexUrl = 'https://ziglang.org/download/index.json';
 
 type ZigExecutable = { executable: string; args: string[] };
 type ZigArtifact = { tarball?: unknown; shasum?: unknown };
-type MarmottaHome = { path: string; fromEnvironment: boolean };
+export type MarmottaHome = { path: string; fromEnvironment: boolean };
 // The Marmotta home is resolved once by ensureZig and travels with the command, so the Zig cache and the build
 // directory always come from the same MARMOTTA_HOME value.
 type ZigCommand = ZigExecutable & { home: MarmottaHome; env?: NodeJS.ProcessEnv; cacheDirectory?: string };
@@ -39,7 +39,7 @@ function isAbsoluteDirectory(value: string): boolean {
 }
 
 // Read when a command needs it, so an invalid MARMOTTA_HOME is reported as a Marmotta error by that command.
-function marmottaHome(): MarmottaHome {
+export function marmottaHome(): MarmottaHome {
   const value = process.env.MARMOTTA_HOME;
   if (!value) return { path: join(homedir(), '.marmotta'), fromEnvironment: false };
   // Surrounding whitespace is usually a copy-paste mistake; rejecting it avoids silently using another directory.
@@ -62,7 +62,7 @@ function zigRoot(home: MarmottaHome): string {
 }
 
 // Names the directory that failed and why, and mentions MARMOTTA_HOME when the user configured the location.
-function directoryError(home: MarmottaHome, path: string, cause: unknown): Error {
+export function directoryError(home: MarmottaHome, path: string, cause: unknown): Error {
   if (!home.fromEnvironment) return new MarmottaDirectoryFailedError(path, { cause });
   const target = path === home.path
     ? `the MARMOTTA_HOME directory ${path}`
@@ -119,7 +119,7 @@ function prepareZigCache(command: ZigCommand): Promise<void> {
   return prepared;
 }
 
-function run(executable: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
+export function run(executable: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: options.cwd, env: options.env, stdio: 'inherit' });
     child.once('error', (cause: Error) => {

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { build, clean, configure, type BuildOptions } from './build.js';
 import { CliArgumentError, CliCommandError, normalizeError } from './errors.js';
 import { ensureZig, listZigVersions, removeZigVersion } from './toolchain.js';
+import { MARMOTTA_VERSION } from './version.js';
 
 const usage = `Marmotta - build tool for Node.js addons with Zig
 
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
     return;
   }
   if (parsed.command === '--version' || parsed.command === '-v') {
-    console.log('marmotta 0.6.0');
+    console.log(`marmotta ${MARMOTTA_VERSION}`);
     return;
   }
 

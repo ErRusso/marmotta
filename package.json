@@ -43,7 +43,12 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test",
+    "check:version": "node scripts/check-version.mjs",
+    "test": "npm run check:version && npm run build && node --test test/",
+    "build:headers": "node scripts/build-headers-asset.mjs",
+    "build:sea": "node scripts/build-sea.mjs",
+    "build:bun": "node scripts/build-bun.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
     "publish:all": "node scripts/publish.mjs"
   },
   "engines": {
@@ -54,6 +59,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.8.3"
   }
 }
