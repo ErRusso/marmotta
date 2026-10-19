@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,10 +15,11 @@ const packageJsonPath = require.resolve('node-api-headers/package.json');
 const headersRoot = dirname(packageJsonPath);
 const { version } = JSON.parse(await readFile(packageJsonPath, 'utf8'));
 const directoryName = `node-api-headers-${version}`;
-const output = join(root, 'build', 'node-api-headers.tar');
+const buildDir = join(root, 'build');
+const output = join(buildDir, 'node-api-headers.tar');
 
-await mkdir(join(root, 'build'), { recursive: true });
-const staging = await mkdtemp(join(root, 'build', '.stage-'));
+await mkdir(buildDir, { recursive: true });
+const staging = await mkdtemp(join(buildDir, '.stage-'));
 try {
   const staged = join(staging, directoryName);
   await mkdir(staged);
@@ -26,7 +27,13 @@ try {
   await mkdir(join(staged, 'def'));
   // Only node_api.def is consumed, by the Windows host-binding generation in src/windows-host.ts.
   await cp(join(headersRoot, 'def', 'node_api.def'), join(staged, 'def', 'node_api.def'));
-  const result = spawnSync('tar', ['-cf', output, '-C', staging, directoryName], { stdio: 'inherit' });
+  // tar runs from build/ with relative paths: GNU tar reads a colon before the first slash of an
+  // archive name as the remote syntax `host:path`, so the absolute Windows path ("C:\...") would
+  // make it try to reach the host "C". GNU tar and bsdtar both accept this form.
+  const result = spawnSync('tar', ['-cf', basename(output), '-C', basename(staging), directoryName], {
+    cwd: buildDir,
+    stdio: 'inherit',
+  });
   if (result.status !== 0) {
     throw new Error(`tar exited with code ${result.status ?? `signal ${result.signal}`}`);
   }

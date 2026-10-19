@@ -12,9 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   build:
@@ -108,14 +106,19 @@ jobs:
       - name: Smoke test (Alpine container)
         if: matrix.smoke == 'alpine'
         shell: bash
+        # Bun's musl executables link libstdc++ dynamically, which a stock Alpine image does not
+        # ship; the image is pinned so the smoke test is reproducible.
         run: |
+          image=alpine:3.22
+          prepare='apk add --no-cache libstdc++ libgcc > /dev/null'
+          file="/out/${{ steps.meta.outputs.file }}"
           expected="marmotta $(node -p "require('./package.json').version")"
-          actual="$(docker run --rm -v "$PWD/out:/out:ro" alpine:latest "/out/${{ steps.meta.outputs.file }}" --version)"
+          actual="$(docker run --rm -v "$PWD/out:/out:ro" "$image" sh -c "$prepare && exec $file --version")"
           if [ "$actual" != "$expected" ]; then
             echo "expected '$expected', got '$actual'" >&2
             exit 1
           fi
-          docker run --rm -v "$PWD/out:/out:ro" alpine:latest "/out/${{ steps.meta.outputs.file }}" --help > /dev/null
+          docker run --rm -v "$PWD/out:/out:ro" "$image" sh -c "$prepare && exec $file --help > /dev/null"
 
       - name: Upload executable
         uses: actions/upload-artifact@v4
@@ -129,6 +132,12 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # Only this job writes to the repository and creates the attestations; the build jobs that run
+    # the test suite and the build scripts keep read-only access.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Download executables
         uses: actions/download-artifact@v4

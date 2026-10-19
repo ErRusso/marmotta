@@ -34,7 +34,9 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
   }
 
   const zig = await ensureZig(config.zigVersion);
-  const headers = await resolveNodeApiHeaders();
+  // The home Zig resolved travels with the command, so both the toolchain and the headers land in
+  // the same MARMOTTA_HOME.
+  const headers = await resolveNodeApiHeaders(zig.home);
   const temporaryDir = await createBuildDirectory(zig);
   const hasCpp = config.sources.some(isCpp);
   const windowsTarget = isWindowsTarget(options.target);

@@ -1,10 +1,9 @@
 import { createRequire } from 'node:module';
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { basename } from 'node:path';
 
 type SeaModule = { isSea(): boolean; getAsset(key: string): ArrayBuffer };
-type BunGlobal = { isStandaloneExecutable?: boolean };
+type BunEmbeddedFile = { name: string; arrayBuffer(): Promise<ArrayBuffer> };
+type BunGlobal = { isStandaloneExecutable?: boolean; embeddedFiles?: BunEmbeddedFile[] };
 
 const require = createRequire(import.meta.url);
 
@@ -19,34 +18,35 @@ function seaRuntime(): boolean {
   }
 }
 
-function bunRuntime(): boolean {
-  return (globalThis as { Bun?: BunGlobal }).Bun?.isStandaloneExecutable === true;
+function bunRuntime(): BunGlobal | undefined {
+  const bun = (globalThis as { Bun?: BunGlobal }).Bun;
+  return bun?.isStandaloneExecutable === true ? bun : undefined;
 }
 
 // True when Marmotta runs from a single-file executable built by Node.js SEA or `bun build
 // --compile`. In that mode the npm package files (node_modules, package.json) are not on disk:
-// everything the CLI needs must be embedded in the executable and extracted on demand, and paths
-// such as import.meta.url point into the binary or into Bun's virtual file system.
+// everything the CLI needs must be embedded in the executable and extracted on demand.
 export function isStandalone(): boolean {
-  return seaRuntime() || bunRuntime();
+  return seaRuntime() || bunRuntime() !== undefined;
 }
 
-// Reads a file embedded in the executable at build time. Node.js SEA stores assets under the name
-// given in sea-config.json; Bun mirrors `--asset` files into its virtual file system next to the
-// bundled entry point, so the entry's directory is searched for the same name. Returns undefined
-// outside a standalone build, where the file is not embedded anywhere.
+// Reads a file embedded in the executable at build time. Returns undefined outside a standalone
+// build, where the file is not embedded anywhere.
 export async function readEmbeddedAsset(name: string): Promise<Buffer | undefined> {
   if (seaRuntime()) {
-    return Buffer.from((require('node:sea') as SeaModule).getAsset(name));
-  }
-  if (!bunRuntime()) return undefined;
-  const entryDirectory = dirname(fileURLToPath(import.meta.url));
-  for (const candidate of [join(entryDirectory, name), join(entryDirectory, '..', name)]) {
+    // sea.getAsset throws when the asset is missing, so a SEA built without it reports a missing
+    // asset instead of an unhandled Node.js error.
     try {
-      return await readFile(candidate);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return Buffer.from((require('node:sea') as SeaModule).getAsset(name));
+    } catch {
+      return undefined;
     }
   }
-  return undefined;
+  const bun = bunRuntime();
+  if (!bun) return undefined;
+  // `bun build --compile --asset` lists the embedded files on Bun.embeddedFiles. Their names are the
+  // only stable reference to the copy inside the executable: with --bytecode, import.meta.url keeps
+  // the build machine's path, and Bun's virtual file system root is not part of the public API.
+  const embedded = bun.embeddedFiles?.find((file) => basename(file.name) === name);
+  return embedded ? Buffer.from(await embedded.arrayBuffer()) : undefined;
 }

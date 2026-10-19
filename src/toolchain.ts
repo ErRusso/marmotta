@@ -241,31 +241,71 @@ async function downloadZig(requestedVersion?: string): Promise<{ version: string
   return { version, tarball: artifact.tarball, archive };
 }
 
+// Installs the contents of an archive under `root` without ever exposing a partial installation: the
+// archive is unpacked into a private staging directory and the result is moved into place with a
+// single rename. `destination` must be specific to the archive contents (a version, or a hash of the
+// archive), so two first runs either find the finished directory or install an identical copy, and a
+// writer never removes files that another process is already compiling with. An existing destination
+// is only replaced when `isComplete` reports it as a leftover of an interrupted run.
+export async function installArchive(options: {
+  root: string;
+  archive: Buffer;
+  archiveName: string;
+  destination: string;
+  isComplete: (directory: string) => Promise<boolean>;
+}): Promise<void> {
+  const { root, archive, archiveName, destination, isComplete } = options;
+  if (await isComplete(destination)) return;
+  const temporaryDir = await mkdtemp(join(root, '.install-'));
+  try {
+    const stagingDir = join(temporaryDir, 'staged');
+    await mkdir(stagingDir);
+    await writeFile(join(temporaryDir, archiveName), archive);
+    // tar runs from the archive's directory and is given relative paths: GNU tar reads a colon before
+    // the first slash of an archive name as the remote syntax `host:path`, so an absolute Windows
+    // path ("C:\...") would make it try to reach the host "C". GNU tar and bsdtar both accept this.
+    await run('tar', ['-xf', archiveName, '-C', 'staged'], { cwd: temporaryDir });
+    const entries = await readdir(stagingDir, { withFileTypes: true });
+    const extracted = entries.length === 1 && entries[0]?.isDirectory()
+      ? join(stagingDir, entries[0].name)
+      : stagingDir;
+    try {
+      await rename(extracted, destination);
+    } catch (error) {
+      // Another process may have completed the same installation while this one extracted. Its copy
+      // has identical contents, so it is kept; only a genuinely incomplete destination is replaced.
+      if (await isComplete(destination)) return;
+      await rm(destination, { recursive: true, force: true });
+      await rename(extracted, destination);
+    }
+  } finally {
+    await rm(temporaryDir, { recursive: true, force: true });
+  }
+}
+
 async function downloadAndInstallZig(home: MarmottaHome, requestedVersion?: string): Promise<ZigExecutable> {
   const root = zigRoot(home);
   // Create the download directory before any network work, so an unusable location fails before the download.
   await mkdir(root, { recursive: true });
-  const temporaryDir = await mkdtemp(join(root, '.download-'));
-  try {
-    const { version, tarball, archive } = await downloadZig(requestedVersion);
-    const archivePath = join(temporaryDir, basename(new URL(tarball).pathname));
-    const extractionDir = join(temporaryDir, 'extracted');
-    await mkdir(extractionDir);
-    await writeFile(archivePath, archive);
-    await run('tar', ['-xf', archivePath, '-C', extractionDir]);
-    const extractedEntries = await readdir(extractionDir, { withFileTypes: true });
-    const installSource = extractedEntries.length === 1 && extractedEntries[0]?.isDirectory()
-      ? join(extractionDir, extractedEntries[0].name)
-      : extractionDir;
-    const installDir = join(root, version);
-    await rm(installDir, { recursive: true, force: true });
-    await rename(installSource, installDir);
-    const executable = join(installDir, process.platform === 'win32' ? 'zig.exe' : 'zig');
-    if (process.platform !== 'win32') await chmod(executable, 0o755);
-    return { executable, args: [] };
-  } finally {
-    await rm(temporaryDir, { recursive: true, force: true });
-  }
+  const { version, tarball, archive } = await downloadZig(requestedVersion);
+  const destination = join(root, version);
+  await installArchive({
+    root,
+    archive,
+    archiveName: basename(new URL(tarball).pathname),
+    destination,
+    isComplete: async (directory) => {
+      try {
+        await access(join(directory, process.platform === 'win32' ? 'zig.exe' : 'zig'));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+  const executable = join(destination, process.platform === 'win32' ? 'zig.exe' : 'zig');
+  if (process.platform !== 'win32') await chmod(executable, 0o755);
+  return { executable, args: [] };
 }
 
 // File system failures keep the ZIG_INSTALL_FAILED code but say which path failed and why.

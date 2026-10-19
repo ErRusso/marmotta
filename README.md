@@ -112,6 +112,8 @@ Notes on the standalone binaries:
 - The macOS binaries carry an ad-hoc signature with the entitlements JavaScriptCore
   needs. If macOS blocks a downloaded binary, remove the quarantine attribute with
   `xattr -d com.apple.quarantine <file>` (or control-click and open it).
+- The musl binaries link against `libstdc++`, which a stock Alpine image does not ship.
+  Install it first: `apk add libstdc++`.
 - The binaries are built with [`bun build --compile`](https://bun.com/docs/bundler/executables).
 
 ## Quick start

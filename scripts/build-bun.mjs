@@ -4,7 +4,7 @@
 // target in its own job or loop over all of them from one. Pass --target to build a single target;
 // without it every supported target is built.
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { access, copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,16 +30,20 @@ if (targets.some((target) => !allTargets.includes(target))) {
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const headers = join(root, 'build', 'node-api-headers.tar');
 try {
-  await readFile(headers);
+  await access(headers);
 } catch {
   console.error(`Missing ${headers}. Run "npm run build:headers" first.`);
   process.exit(1);
 }
 
-// The archive is staged next to the bundled entry point so Bun mirrors it into the executable at
-// the same relative path; src/standalone.ts reads it back from the entry point's directory.
+// The archive is staged next to the bundled entry point so Bun can embed it as an asset; at runtime
+// src/standalone.ts reads it from Bun.embeddedFiles. It is removed again after the build so a later
+// `npm publish` cannot ship it.
 const stagedHeaders = join(root, 'dist', 'node-api-headers.tar');
 await copyFile(headers, stagedHeaders);
+// A failed build must not skip the cleanup of the staged archive: `dist` is published to npm, so a
+// checkout that failed to build would otherwise ship dist/node-api-headers.tar on the next publish.
+let exitCode = 0;
 try {
   await mkdir(join(root, 'out'), { recursive: true });
   for (const target of targets) {
@@ -60,7 +64,8 @@ try {
       '--outfile', output,
     ], { stdio: 'inherit' });
     if (result.status !== 0) {
-      process.exit(result.status ?? 1);
+      exitCode = result.status ?? 1;
+      break;
     }
 
     // An unsigned macOS executable is rejected by Gatekeeper once it carries the quarantine
@@ -77,7 +82,8 @@ try {
         });
         if (sign.status !== 0) {
           console.error('codesign failed; the executable will not pass Gatekeeper on macOS.');
-          process.exit(sign.status ?? 1);
+          exitCode = sign.status ?? 1;
+          break;
         }
       }
     }
@@ -86,3 +92,4 @@ try {
 } finally {
   await rm(stagedHeaders, { force: true });
 }
+if (exitCode !== 0) process.exit(exitCode);

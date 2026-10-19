@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { access, chmod, copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 
@@ -135,7 +135,12 @@ test('downloads the exact pinned Zig release rather than the latest indexed vers
     await mkdir(payload);
     await writeFile(join(payload, executableName), '');
     const archivePath = join(directory, 'zig.tar');
-    const archive = spawnSync('tar', ['-cf', archivePath, '-C', payload, executableName], { encoding: 'utf8' });
+    // tar runs from the archive's directory with relative paths: an absolute Windows path in an
+    // archive name is read by GNU tar (shipped with Git for Windows) as the remote syntax host:path.
+    const archive = spawnSync('tar', ['-cf', basename(archivePath), '-C', basename(payload), executableName], {
+      cwd: directory,
+      encoding: 'utf8',
+    });
     assert.equal(archive.status, 0, archive.stderr);
 
     const result = runEnsureZig({

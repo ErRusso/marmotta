@@ -4,7 +4,7 @@
 // embedded as an asset, and both are injected into a copy of this Node.js runtime. Requires
 // Node.js 25.5 or newer for `node --build-sea`.
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -18,20 +18,21 @@ if (major < 25 || (major === 25 && minor < 5)) {
 
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const suffix = process.platform === 'win32' ? '.exe' : '';
-// Named after the target platform, not the build host, so cross-checks and archives are unambiguous.
+// --build-sea only produces an executable for the platform of this Node.js build, so the name uses
+// that platform with the same spelling as the Bun artifacts (windows, not win32) to keep checksums
+// and download scripts consistent.
+const platform = process.platform === 'win32' ? 'windows' : process.platform;
 const output = process.argv[2]
-  ?? join(root, 'build', `marmotta-v${packageJson.version}-${process.platform}-${process.arch}${suffix}`);
+  ?? join(root, 'build', `marmotta-v${packageJson.version}-${platform}-${process.arch}${suffix}`);
 const bundle = join(root, 'build', 'marmotta.bundle.mjs');
 const headers = join(root, 'build', 'node-api-headers.tar');
 const seaConfig = join(root, 'build', 'sea-config.json');
 
-for (const file of [headers]) {
-  try {
-    await readFile(file);
-  } catch {
-    console.error(`Missing ${file}. Run "npm run build:headers" first.`);
-    process.exit(1);
-  }
+try {
+  await access(headers);
+} catch {
+  console.error(`Missing ${headers}. Run "npm run build:headers" first.`);
+  process.exit(1);
 }
 
 // Everything the CLI uses must be in the bundle: a SEA resolves only built-in modules at runtime.

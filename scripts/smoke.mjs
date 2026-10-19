@@ -45,8 +45,15 @@ run(['--help'], { env: hostileEnv });
 
 if (!quick) {
   const directory = await mkdtemp(join(tmpdir(), 'marmotta-smoke-'));
+  // A private MARMOTTA_HOME keeps the run out of the developer's real ~/.marmotta and always
+  // exercises a first-run headers extraction. It lives outside the project directory: source
+  // discovery would otherwise find the C sources of the downloaded Zig toolchain.
+  const home = await mkdtemp(join(tmpdir(), 'marmotta-smoke-home-'));
+  const environment = { ...hostileEnv, MARMOTTA_HOME: home };
   try {
-    // Stray project configuration must not change the standalone executable's behavior.
+    // Stray project configuration must not change the standalone executable's behavior. Bun loads
+    // these files from the process working directory, which is why every project command below runs
+    // with cwd set to this directory.
     await writeFile(join(directory, '.env'), 'ZIG_GLOBAL_CACHE_DIR=/nonexistent\nMARMOTTA_ZIG_DIR=/nonexistent\n');
     await writeFile(join(directory, 'bunfig.toml'), '[install]\nregistry = "https://example.invalid"\n');
     // The calls are assigned before the assert on purpose: `zig cc -O2` defines NDEBUG, and an
@@ -74,10 +81,10 @@ NAPI_MODULE(NODE_GYP_MODULE_NAME, Initialize)
 `);
     await writeFile(join(directory, 'marmotta.config.json'), JSON.stringify({ name: 'hello' }));
 
-    run(['install'], { env: hostileEnv });
-    run(['list'], { env: hostileEnv });
-    run(['configure', '-C', directory], { env: hostileEnv });
-    run(['build', '-C', directory], { env: hostileEnv });
+    run(['install'], { cwd: directory, env: environment });
+    run(['list'], { cwd: directory, env: environment });
+    run(['configure', '-C', directory], { cwd: directory, env: environment });
+    run(['build', '-C', directory], { cwd: directory, env: environment });
 
     const addon = join(directory, 'hello.node');
     const loaded = spawnSync(process.execPath, ['-e', `console.log(require(${JSON.stringify(addon)}).hello())`], {
@@ -87,14 +94,15 @@ NAPI_MODULE(NODE_GYP_MODULE_NAME, Initialize)
     assert.equal(loaded.status, 0, `the compiled addon must load in Node.js\n${loaded.stderr}`);
     assert.equal(loaded.stdout.trim(), 'world');
 
-    run(['clean', '-C', directory], { env: hostileEnv });
-    run(['rebuild', '-C', directory], { env: hostileEnv });
-    run(['remove', '0.0.1'], { env: hostileEnv });
+    run(['clean', '-C', directory], { cwd: directory, env: environment });
+    run(['rebuild', '-C', directory], { cwd: directory, env: environment });
+    run(['remove', '0.0.1'], { cwd: directory, env: environment });
 
-    const unknown = spawnSync(binary, ['unknown-command'], { encoding: 'utf8', env: hostileEnv });
+    const unknown = spawnSync(binary, ['unknown-command'], { encoding: 'utf8', env: environment });
     assert.equal(unknown.status, 2, 'unknown commands must fail with the usage exit code');
   } finally {
     await rm(directory, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 }
 
