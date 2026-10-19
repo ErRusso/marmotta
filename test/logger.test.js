@@ -18,13 +18,12 @@ function capture(format = 'json', level = 'info') {
   };
 }
 
-// Splits captured chunks on newlines and parses each record, which fails if a record is not
-// newline-terminated or if two records share a line.
+// Each sink call is one complete record: JSON records parse directly, without splitting on newlines.
 function records(chunks) {
-  return chunks.join('').split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line));
+  return chunks.map((chunk) => JSON.parse(chunk));
 }
 
-test('writes one newline-terminated JSON record per call and routes levels to the right stream', () => {
+test('writes one JSON record per call to the matching stream', () => {
   const { logger, stdout, stderr } = capture();
 
   logger.info('first record');
@@ -32,7 +31,9 @@ test('writes one newline-terminated JSON record per call and routes levels to th
   logger.warn('cache miss');
   logger.error('compile failed', { code: 'TOOLCHAIN_COMMAND_FAILED' });
 
-  for (const chunk of [...stdout, ...stderr]) assert.ok(chunk.endsWith('\n'), JSON.stringify(chunk));
+  assert.equal(stdout.length, 2);
+  assert.equal(stderr.length, 2);
+  for (const chunk of [...stdout, ...stderr]) assert.ok(!chunk.endsWith('\n'), JSON.stringify(chunk));
 
   const [first, second] = records(stdout);
   assert.equal(first.level, 'info');
@@ -57,6 +58,34 @@ test('keeps text output plain, multi-line, and includes the data payload', () =>
   assert.deepEqual(stdout, ['marmotta 0.6.0', 'Commands:\n  build\n  clean']);
   assert.match(stderr[0], /^careful\n/);
   assert.match(stderr[0], /code: 'SOMETHING'/);
+});
+
+test('uses the same sink contract in both formats', () => {
+  const lines = [];
+  const sink = (line) => lines.push(line);
+
+  new Logger({ format: 'json', stdout: sink }).info('json record');
+  new Logger({ format: 'text', stdout: sink }).info('text record');
+
+  assert.equal(lines.length, 2);
+  assert.equal(JSON.parse(lines[0]).message, 'json record');
+  assert.equal(lines[1], 'text record');
+  for (const line of lines) assert.ok(!line.endsWith('\n'), JSON.stringify(line));
+});
+
+test('never filters command output with the level', () => {
+  const json = capture('json', 'error');
+  json.logger.output('marmotta 0.6.0');
+  json.logger.output('compiler error', { data: { command: 'zig', stream: 'stderr' }, stream: 'stderr' });
+  json.logger.info('hidden');
+  json.logger.debug('hidden');
+  assert.deepEqual(records(json.stdout).map((record) => record.message), ['marmotta 0.6.0']);
+  assert.deepEqual(records(json.stderr).map((record) => record.message), ['compiler error']);
+
+  const text = capture('text', 'error');
+  text.logger.output('marmotta 0.6.0');
+  text.logger.info('hidden');
+  assert.deepEqual(text.stdout, ['marmotta 0.6.0']);
 });
 
 test('emits records for empty messages instead of dropping them', () => {
@@ -121,6 +150,30 @@ test('falls back to info for an invalid MARMOTTA_LOG value', () => {
   logger.debug('hidden');
 
   assert.match(stderr[0], /ignoring invalid MARMOTTA_LOG value/);
+  assert.equal(records(stdout).length, 1);
+});
+
+test('rejects inherited property names as levels', () => {
+  for (const level of ['constructor', '__proto__', 'toString']) {
+    const stdout = [];
+    const stderr = [];
+    const logger = new Logger({ format: 'json', level, stdout: (line) => stdout.push(line), stderr: (line) => stderr.push(line) });
+    logger.info('visible');
+    logger.debug('hidden');
+
+    assert.match(stderr[0], /ignoring invalid MARMOTTA_LOG value/, level);
+    assert.equal(records(stdout).length, 1, level);
+  }
+});
+
+test('treats an empty level as unset', () => {
+  const stdout = [];
+  const stderr = [];
+  const logger = new Logger({ format: 'json', level: '', stdout: (line) => stdout.push(line), stderr: (line) => stderr.push(line) });
+  logger.info('visible');
+  logger.debug('hidden');
+
+  assert.deepEqual(stderr, []);
   assert.equal(records(stdout).length, 1);
 });
 

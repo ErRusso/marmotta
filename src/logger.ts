@@ -4,6 +4,10 @@ import pino, { type DestinationStream, type Logger as PinoLogger } from 'pino';
 export type LogFormat = 'text' | 'json';
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
+/**
+ * Receives one record per call, without a trailing newline, in both text and JSON mode, so the
+ * same sink works for either format.
+ */
 type LogSink = (line: string) => void;
 
 export interface LoggerOptions {
@@ -12,6 +16,17 @@ export interface LoggerOptions {
   level?: string;
   stdout?: LogSink;
   stderr?: LogSink;
+}
+
+export interface OutputOptions {
+  /** Structured context merged into the JSON record. Ignored in text mode. */
+  data?: unknown;
+  /** Text written instead of the message in text mode, for results that render differently. */
+  text?: string;
+  /** Destination stream. Defaults to stdout. */
+  stream?: 'stdout' | 'stderr';
+  /** Level of the JSON record. Defaults to "info". */
+  level?: LogLevel;
 }
 
 // pino uses the same scale, so one table drives both the JSON writers and the plain-text gate.
@@ -33,7 +48,6 @@ export class Logger {
   private readonly stderrSink: LogSink;
   private readonly customSinks: boolean;
   private logFormat: LogFormat;
-  private levelName?: string;
   private minLevel?: number;
   private jsonStdout?: PinoLogger;
   private jsonStderr?: PinoLogger;
@@ -46,13 +60,18 @@ export class Logger {
     // byte-compatible with the plain console usage this logger replaces.
     this.stdoutSink = options.stdout ?? ((line) => console.log(line));
     this.stderrSink = options.stderr ?? ((line) => console.error(line));
-    // Resolved on first use, so the format is already settled and an invalid value is reported
-    // through the same channel as every other record.
-    this.requestedLevel = (options.level ?? process.env.MARMOTTA_LOG ?? 'info').toLowerCase();
+    // Empty or whitespace-only counts as unset, matching MARMOTTA_HOME and MARMOTTA_ZIG_DIR.
+    const requested = (options.level ?? process.env.MARMOTTA_LOG ?? '').trim();
+    this.requestedLevel = requested === '' ? 'info' : requested.toLowerCase();
   }
 
   get format(): LogFormat {
     return this.logFormat;
+  }
+
+  /** Child process output must be captured and re-emitted as records in JSON mode. */
+  get capturesChildOutput(): boolean {
+    return this.logFormat === 'json';
   }
 
   setFormat(format: LogFormat): void {
@@ -78,15 +97,32 @@ export class Logger {
     this.log('debug', message, data);
   }
 
+  /**
+   * Writes a command result. Level filtering never applies: MARMOTTA_LOG controls diagnostics, not
+   * the command's own output, so `--version`, `list`, confirmations and compiler output stay
+   * visible even when MARMOTTA_LOG is set to "error" or "silent".
+   */
+  output(message: string, options: OutputOptions = {}): void {
+    this.resolveLevel();
+    const { data, text, stream = 'stdout', level = 'info' } = options;
+    if (this.logFormat === 'json') this.writeJson(stream, level, message, data);
+    else (stream === 'stderr' ? this.stderrSink : this.stdoutSink)(text ?? message);
+  }
+
+  /** Writes the final CLI error; it is always printed, on stderr. */
+  failure(message: string, data?: unknown, text?: string): void {
+    this.output(message, { data, text, stream: 'stderr', level: 'error' });
+  }
+
   private resolveLevel(): void {
     if (this.minLevel !== undefined) return;
-    const value = levelValues[this.requestedLevel];
-    if (value !== undefined) {
-      this.levelName = this.requestedLevel;
+    // Object.hasOwn rejects inherited names such as "constructor" or "__proto__", which would
+    // otherwise resolve to prototype members and silently disable the gate.
+    const value = Object.hasOwn(levelValues, this.requestedLevel) ? levelValues[this.requestedLevel] : undefined;
+    if (typeof value === 'number') {
       this.minLevel = value;
       return;
     }
-    this.levelName = 'info';
     this.minLevel = levelValues.info;
     this.warn(`marmotta: ignoring invalid MARMOTTA_LOG value ${JSON.stringify(this.requestedLevel)}; using "info"`);
   }
@@ -98,10 +134,15 @@ export class Logger {
     else this.logText(level, message, data);
   }
 
-  // pino newline-terminates every record, so stdout stays valid JSON Lines across many records,
-  // and it serializes circular context as "[Circular]" instead of dropping the whole payload.
+  // pino is configured at "trace" so log() performs the only level filtering. output() records
+  // therefore always pass, while pino still newline-terminates each record and serializes circular
+  // context as "[Circular]" instead of dropping the payload.
   private logJson(level: LogLevel, message: string, data?: unknown): void {
-    const target = this.jsonLogger(level === 'warn' || level === 'error' ? 'stderr' : 'stdout');
+    this.writeJson(level === 'warn' || level === 'error' ? 'stderr' : 'stdout', level, message, data);
+  }
+
+  private writeJson(stream: 'stdout' | 'stderr', level: LogLevel, message: string, data?: unknown): void {
+    const target = this.jsonLogger(stream);
     if (data === undefined) target[level](message);
     else target[level]({ data }, message);
   }
@@ -115,7 +156,7 @@ export class Logger {
     const existing = stream === 'stdout' ? this.jsonStdout : this.jsonStderr;
     if (existing) return existing;
     const options = {
-      level: this.levelName,
+      level: 'trace',
       messageKey: 'message',
       formatters: {
         level: (label: string) => ({ level: label }),
@@ -139,7 +180,9 @@ export class Logger {
 }
 
 function sinkDestination(sink: LogSink): DestinationStream {
-  return { write: (line: string) => void sink(line) };
+  // pino terminates JSON records with a newline; the sink contract is one unterminated line per
+  // call, so strip it before handing the line over.
+  return { write: (line: string) => void sink(line.replace(/\n$/, '')) };
 }
 
 // Default logger instance for use throughout the application

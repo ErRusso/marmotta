@@ -63,6 +63,11 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   const [command, ...rest] = positionals;
+  // --version is a top-level request. Combining it with a command would print the version and
+  // silently skip the requested work, so reject the combination instead.
+  if (version && command !== undefined && command !== 'help') {
+    throw new CliArgumentError('--version cannot be combined with a command');
+  }
   return {
     command: command ?? 'help',
     positional: rest,
@@ -81,11 +86,11 @@ async function main(): Promise<void> {
   const parsed = parseArgs(argv);
 
   if (parsed.help) {
-    logger.info(usage);
+    logger.output(usage);
     return;
   }
   if (parsed.version) {
-    logger.info('marmotta 0.6.0');
+    logger.output('marmotta 0.6.0');
     return;
   }
 
@@ -105,14 +110,14 @@ async function main(): Promise<void> {
       break;
     case 'install':
       await ensureZig();
-      logger.info('Zig toolchain is ready.');
+      logger.output('Zig toolchain is ready.');
       break;
     case 'list': {
       const versions = await listZigVersions();
-      if (versions.length === 0) logger.info('No Zig versions installed by Marmotta.');
-      // JSON consumers get one record per version; text mode prints the list unchanged.
-      else if (logger.format === 'json') for (const version of versions) logger.info(version);
-      else logger.info(versions.join('\n'));
+      logger.output(versions.length > 0 ? 'Installed Zig versions' : 'No Zig versions installed by Marmotta.', {
+        data: { versions },
+        text: versions.length > 0 ? versions.join('\n') : undefined,
+      });
       break;
     }
     case 'remove': {
@@ -121,22 +126,20 @@ async function main(): Promise<void> {
         throw new CliArgumentError('Specify the Zig version to remove.');
       }
       await removeZigVersion(version);
-      logger.info(`Removed Zig version ${version}.`);
+      logger.output(`Removed Zig version ${version}.`);
       break;
     }
     default:
-      throw new CliCommandError(`Unknown command: ${parsed.command}\n\n${usage}`);
+      throw new CliCommandError(`Unknown command: ${parsed.command}`);
   }
 }
 
 main().catch((error: unknown) => {
   const normalized = normalizeError(error);
-  // Text mode keeps the historical "marmotta [CODE]: message" line; JSON records carry the code
-  // and exit code as structured fields instead of embedding them in the message.
-  if (logger.format === 'json') {
-    logger.error(normalized.message, { code: normalized.code, exitCode: normalized.exitCode });
-  } else {
-    logger.error(`marmotta [${normalized.code}]: ${normalized.message}`);
-  }
+  // Text mode keeps the historical "marmotta [CODE]: message" line and appends the usage block for
+  // unknown commands; the JSON record omits it so its message stays a single line.
+  const base = `marmotta [${normalized.code}]: ${normalized.message}`;
+  const text = normalized.code === 'CLI_COMMAND_ERROR' ? `${base}\n\n${usage}` : base;
+  logger.failure(normalized.message, { code: normalized.code, exitCode: normalized.exitCode }, text);
   process.exitCode = normalized.exitCode;
 });

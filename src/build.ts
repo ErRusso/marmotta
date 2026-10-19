@@ -34,7 +34,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
   const output = join(outputDir, `${config.name}.node`);
   if (cleanOnly) {
     await rm(output, { force: true });
-    logger.info(`Removed ${output}`);
+    logger.output(`Removed ${output}`);
     return;
   }
 
@@ -83,7 +83,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
 
     await mkdir(dirname(output), { recursive: true });
     await runZig(zig, args, options.directory);
-    logger.info(`Addon built: ${output}`);
+    logger.output(`Addon built: ${output}`);
   } finally {
     await rm(temporaryDir, { recursive: true, force: true });
   }
@@ -92,7 +92,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
 export async function configure(options: BuildOptions): Promise<ProjectConfig> {
   const config = await loadProject(options.directory, { target: options.target });
   await ensureZig(config.zigVersion);
-  logger.info(`Configuration ready: ${config.name} (${config.sources.length} sources)`);
+  logger.output(`Configuration ready: ${config.name} (${config.sources.length} sources)`);
   return config;
 }
 
