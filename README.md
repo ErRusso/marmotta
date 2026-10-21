@@ -207,8 +207,8 @@ npx marmotta --json list
 
 - `level` is a string such as `info`, `warn`, or `error`. Informational records go to stdout; warnings and errors go to stderr.
 - `message` is the human-readable text, and `data` carries the record's structured context when there is any, such as the error `code` and `exitCode`, the installed `versions`, or a child process's `command` and `stream`.
-- Command results, such as help, the version, `list`, confirmations and error messages, are always printed. Output from the Zig and `tar` child processes is captured and re-emitted as records tagged with `command` and `stream`, so every line printed in `--json` mode is valid JSON and compiler errors are never hidden.
-- Set `MARMOTTA_LOG` to the minimum level for diagnostic records: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `silent`. The default is `info`, which hides `debug` records. An unrecognized value is ignored with a warning.
+- Command results, such as help, the version, `list`, confirmations and error messages, are always printed. Output from the Zig and `tar` child processes is captured and re-emitted as records tagged with `command` and `stream`, so every line printed in `--json` mode is valid JSON and compiler errors are never hidden. Lines from the child's stderr are `warn` records on stderr; lines from its stdout are `info` records on stdout. Lines keep their order within each stream, but the order between a child's stdout and stderr lines is not preserved.
+- Set `MARMOTTA_LOG` to the minimum level for diagnostic records: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `silent`. The default is `info`, which hides `debug` records: which Zig is used, where Zig is downloaded from, and each Zig or `tar` command line. An unrecognized value is ignored with a warning.
 
 `MARMOTTA_LOG` filters diagnostics only; it never hides a command's result or its final error. It applies to both formats and does not change the shape of the output.
 

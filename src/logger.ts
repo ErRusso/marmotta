@@ -23,14 +23,22 @@ export interface OutputOptions {
   data?: unknown;
   /** Text written instead of the message in text mode, for results that render differently. */
   text?: string;
-  /** Destination stream. Defaults to stdout. */
-  stream?: 'stdout' | 'stderr';
-  /** Level of the JSON record. Defaults to "info". */
+  /** Level of the record, which also picks the stream: warn and error go to stderr. Defaults to "info". */
   level?: LogLevel;
 }
 
-// pino uses the same scale, so one table drives both the JSON writers and the plain-text gate.
-const levelValues: Record<string, number> = pino.levels.values;
+// pino's level scale also drives the plain-text gate. "silent" is accepted by pino but is not part
+// of its value table.
+function levelValue(level: string): number | undefined {
+  if (level === 'silent') return Infinity;
+  // Object.hasOwn rejects inherited names such as "constructor" or "__proto__", which would
+  // otherwise resolve to prototype members and silently disable the gate.
+  return Object.hasOwn(pino.levels.values, level) ? pino.levels.values[level] : undefined;
+}
+
+function isStderrLevel(level: LogLevel): boolean {
+  return level === 'warn' || level === 'error';
+}
 
 // inspect handles circular references, prototypes and throwing accessors without failing, which
 // keeps the plain-text payload best-effort even for context that JSON cannot represent.
@@ -42,15 +50,23 @@ function formatTextData(data: unknown): string {
   }
 }
 
+type JsonLoggers = {
+  /** Gated by the requested level, like the plain-text diagnostics. */
+  diagnostics: PinoLogger;
+  /** Shares the destination but is never gated, for command output. */
+  output: PinoLogger;
+};
+
 export class Logger {
   private readonly requestedLevel: string;
+  private readonly level: string;
+  private readonly minLevel: number;
   private readonly stdoutSink: LogSink;
   private readonly stderrSink: LogSink;
   private readonly customSinks: boolean;
   private logFormat: LogFormat;
-  private minLevel?: number;
-  private jsonStdout?: PinoLogger;
-  private jsonStderr?: PinoLogger;
+  private levelChecked = false;
+  private json?: JsonLoggers;
 
   constructor(options: LoggerOptions = {}) {
     this.logFormat = options.format ?? 'text';
@@ -63,6 +79,9 @@ export class Logger {
     // Empty or whitespace-only counts as unset, matching MARMOTTA_HOME and MARMOTTA_ZIG_DIR.
     const requested = (options.level ?? process.env.MARMOTTA_LOG ?? '').trim();
     this.requestedLevel = requested === '' ? 'info' : requested.toLowerCase();
+    const value = levelValue(this.requestedLevel);
+    this.level = value === undefined ? 'info' : this.requestedLevel;
+    this.minLevel = value ?? levelValue('info')!;
   }
 
   get format(): LogFormat {
@@ -79,6 +98,17 @@ export class Logger {
       throw new TypeError(`Unsupported log format: ${String(format)}`);
     }
     this.logFormat = format;
+  }
+
+  /**
+   * Warns, once, when the requested level was not recognized and "info" is used instead. Call it
+   * after the output format is final, so the warning is written in that format.
+   */
+  checkLevel(): void {
+    if (this.levelChecked) return;
+    this.levelChecked = true;
+    if (this.level === this.requestedLevel) return;
+    this.warn(`marmotta: ignoring invalid MARMOTTA_LOG value ${JSON.stringify(this.requestedLevel)}; using "info"`);
   }
 
   info(message: string, data?: unknown): void {
@@ -103,80 +133,61 @@ export class Logger {
    * visible even when MARMOTTA_LOG is set to "error" or "silent".
    */
   output(message: string, options: OutputOptions = {}): void {
-    this.resolveLevel();
-    const { data, text, stream = 'stdout', level = 'info' } = options;
-    if (this.logFormat === 'json') this.writeJson(stream, level, message, data);
-    else (stream === 'stderr' ? this.stderrSink : this.stdoutSink)(text ?? message);
+    const { data, text, level = 'info' } = options;
+    if (this.logFormat === 'json') this.writeJson(this.jsonLoggers().output, level, message, data);
+    else (isStderrLevel(level) ? this.stderrSink : this.stdoutSink)(text ?? message);
   }
 
   /** Writes the final CLI error; it is always printed, on stderr. */
   failure(message: string, data?: unknown, text?: string): void {
-    this.output(message, { data, text, stream: 'stderr', level: 'error' });
-  }
-
-  private resolveLevel(): void {
-    if (this.minLevel !== undefined) return;
-    // Object.hasOwn rejects inherited names such as "constructor" or "__proto__", which would
-    // otherwise resolve to prototype members and silently disable the gate.
-    const value = Object.hasOwn(levelValues, this.requestedLevel) ? levelValues[this.requestedLevel] : undefined;
-    if (typeof value === 'number') {
-      this.minLevel = value;
-      return;
-    }
-    this.minLevel = levelValues.info;
-    this.warn(`marmotta: ignoring invalid MARMOTTA_LOG value ${JSON.stringify(this.requestedLevel)}; using "info"`);
+    this.output(message, { data, text, level: 'error' });
   }
 
   private log(level: LogLevel, message: string, data?: unknown): void {
-    this.resolveLevel();
-    if (levelValues[level] < this.minLevel!) return;
-    if (this.logFormat === 'json') this.logJson(level, message, data);
-    else this.logText(level, message, data);
+    if (this.logFormat === 'json') {
+      this.writeJson(this.jsonLoggers().diagnostics, level, message, data);
+      return;
+    }
+    if (levelValue(level)! < this.minLevel) return;
+    const line = data === undefined ? message : `${message}\n${formatTextData(data)}`;
+    (isStderrLevel(level) ? this.stderrSink : this.stdoutSink)(line);
   }
 
-  // pino is configured at "trace" so log() performs the only level filtering. output() records
-  // therefore always pass, while pino still newline-terminates each record and serializes circular
-  // context as "[Circular]" instead of dropping the payload.
-  private logJson(level: LogLevel, message: string, data?: unknown): void {
-    this.writeJson(level === 'warn' || level === 'error' ? 'stderr' : 'stdout', level, message, data);
-  }
-
-  private writeJson(stream: 'stdout' | 'stderr', level: LogLevel, message: string, data?: unknown): void {
-    const target = this.jsonLogger(stream);
+  // pino serializes circular context as "[Circular]" instead of dropping the payload.
+  private writeJson(target: PinoLogger, level: LogLevel, message: string, data?: unknown): void {
     if (data === undefined) target[level](message);
     else target[level]({ data }, message);
   }
 
-  private logText(level: LogLevel, message: string, data?: unknown): void {
-    const line = data === undefined ? message : `${message}\n${formatTextData(data)}`;
-    (level === 'warn' || level === 'error' ? this.stderrSink : this.stdoutSink)(line);
-  }
-
-  private jsonLogger(stream: 'stdout' | 'stderr'): PinoLogger {
-    const existing = stream === 'stdout' ? this.jsonStdout : this.jsonStderr;
-    if (existing) return existing;
-    const options = {
-      level: 'trace',
+  // Both loggers write through one multistream that sends warn and above to stderr and everything
+  // else to stdout; dedupe keeps a warn or error record off stdout.
+  private jsonLoggers(): JsonLoggers {
+    if (this.json) return this.json;
+    const stdout = this.customSinks ? sinkDestination(this.stdoutSink) : standardDestination(1);
+    const stderr = this.customSinks ? sinkDestination(this.stderrSink) : standardDestination(2);
+    const destination = pino.multistream([
+      { level: 'trace', stream: stdout },
+      { level: 'warn', stream: stderr },
+    ], { dedupe: true });
+    const diagnostics = pino({
+      level: this.level,
       messageKey: 'message',
       formatters: {
         level: (label: string) => ({ level: label }),
         bindings: () => ({}),
       },
-    };
-    const sink = stream === 'stdout' ? this.stdoutSink : this.stderrSink;
-    const logger = pino(options, this.customSinks ? sinkDestination(sink) : this.standardDestination(stream));
-    if (stream === 'stdout') this.jsonStdout = logger;
-    else this.jsonStderr = logger;
-    return logger;
+    }, destination);
+    this.json = { diagnostics, output: diagnostics.child({}, { level: 'trace' }) };
+    return this.json;
   }
+}
 
-  private standardDestination(stream: 'stdout' | 'stderr'): DestinationStream {
-    const destination = pino.destination({ dest: stream === 'stdout' ? 1 : 2, sync: true });
-    // A downstream reader such as `head` can close the pipe early; console.* would silently absorb
-    // the write error, and the logger must not crash the process where console would not.
-    destination.on('error', () => {});
-    return destination;
-  }
+function standardDestination(fd: 1 | 2): DestinationStream {
+  const destination = pino.destination({ dest: fd, sync: true });
+  // A downstream reader such as `head` can close the pipe early; console.* would silently absorb
+  // the write error, and the logger must not crash the process where console would not.
+  destination.on('error', () => {});
+  return destination;
 }
 
 function sinkDestination(sink: LogSink): DestinationStream {

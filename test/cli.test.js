@@ -48,6 +48,24 @@ test('reports an unknown command with an error code', () => {
   assert.equal(result.status, 2);
   assert.match(result.stderr, /CLI_COMMAND_ERROR/);
   assert.match(result.stderr, /Unknown command/);
+  assert.match(result.stderr, /Usage: marmotta <command>/);
+});
+
+test('rejects command options given without a command', () => {
+  for (const args of [['--debug'], ['-C', '.'], ['--target', 'x86_64-linux'], ['--json', '-o', 'build']]) {
+    const result = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 2, args.join(' '));
+    assert.equal(result.stdout.length, 0, args.join(' '));
+    assert.match(result.stderr, /CLI_COMMAND_ERROR/, args.join(' '));
+    assert.match(result.stderr, /Missing command/, args.join(' '));
+  }
+
+  const text = spawnSync(process.execPath, [cli, '--debug'], { encoding: 'utf8' });
+  assert.match(text.stderr, /Usage: marmotta <command>/);
+  // --json alone only selects the format, so it still shows help.
+  const json = spawnSync(process.execPath, [cli, '--json'], { encoding: 'utf8' });
+  assert.equal(json.status, 0, json.stderr);
+  assert.match(JSON.parse(json.stdout).message, /^Marmotta - build tool/);
 });
 
 test('classifies invalid options as argument errors', () => {
@@ -339,6 +357,41 @@ test('still reports the final error when MARMOTTA_LOG hides diagnostics', () => 
   assert.equal(entry.data.code, 'MARMOTTA_HOME_INVALID');
 });
 
+test('MARMOTTA_LOG=debug shows diagnostics that the default level hides', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'marmotta-debug-'));
+  try {
+    const run = (level) => spawnSync(process.execPath, [cli, 'list', '--json'], {
+      encoding: 'utf8',
+      env: level === undefined ? { ...process.env, MARMOTTA_HOME: home } : { ...process.env, MARMOTTA_HOME: home, MARMOTTA_LOG: level },
+    });
+    const levels = (result) => result.stdout.split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line).level);
+
+    const quiet = run(undefined);
+    assert.equal(quiet.status, 0, quiet.stderr);
+    assert.deepEqual(levels(quiet), ['info']);
+
+    const loud = run('debug');
+    assert.equal(loud.status, 0, loud.stderr);
+    assert.deepEqual(levels(loud), ['debug', 'info']);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test('warns about an invalid MARMOTTA_LOG value in the requested format', () => {
+  const env = { ...process.env, MARMOTTA_LOG: 'bogus' };
+  const json = spawnSync(process.execPath, [cli, '--version', '--json'], { encoding: 'utf8', env });
+  assert.equal(json.status, 0, json.stderr);
+  assert.equal(JSON.parse(json.stdout).message, 'marmotta 0.6.0');
+  const warning = JSON.parse(json.stderr);
+  assert.equal(warning.level, 'warn');
+  assert.match(warning.message, /ignoring invalid MARMOTTA_LOG value "bogus"/);
+
+  const text = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8', env });
+  assert.equal(text.stdout, 'marmotta 0.6.0\n');
+  assert.match(text.stderr, /^marmotta: ignoring invalid MARMOTTA_LOG value "bogus"/);
+});
+
 test('rejects --version combined with a command', () => {
   for (const args of [['build', '--version'], ['remove', '0.13.0', '-v'], ['--json', 'build', '--version']]) {
     const result = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
@@ -383,10 +436,9 @@ test('keeps Zig compiler errors in --json output when MARMOTTA_LOG=error', { ski
     assert.equal(result.status, 1, result.stdout || result.stderr);
 
     const entries = result.stderr.split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line));
-    assert.ok(
-      entries.some((entry) => entry.data?.command === 'zig' && entry.data?.stream === 'stderr'),
-      'Zig compiler output must survive MARMOTTA_LOG=error',
-    );
+    const compilerEntries = entries.filter((entry) => entry.data?.command === 'zig' && entry.data?.stream === 'stderr');
+    assert.ok(compilerEntries.length > 0, 'Zig compiler output must survive MARMOTTA_LOG=error');
+    assert.ok(compilerEntries.every((entry) => entry.level === 'warn'), 'stderr records must not claim level info');
     assert.ok(entries.some((entry) => entry.data?.code === 'TOOLCHAIN_COMMAND_FAILED'));
   } finally {
     await rm(directory, { recursive: true, force: true });

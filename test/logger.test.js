@@ -76,11 +76,11 @@ test('uses the same sink contract in both formats', () => {
 test('never filters command output with the level', () => {
   const json = capture('json', 'error');
   json.logger.output('marmotta 0.6.0');
-  json.logger.output('compiler error', { data: { command: 'zig', stream: 'stderr' }, stream: 'stderr' });
+  json.logger.output('compiler error', { data: { command: 'zig', stream: 'stderr' }, level: 'warn' });
   json.logger.info('hidden');
   json.logger.debug('hidden');
   assert.deepEqual(records(json.stdout).map((record) => record.message), ['marmotta 0.6.0']);
-  assert.deepEqual(records(json.stderr).map((record) => record.message), ['compiler error']);
+  assert.deepEqual(records(json.stderr).map((record) => [record.level, record.message]), [['warn', 'compiler error']]);
 
   const text = capture('text', 'error');
   text.logger.output('marmotta 0.6.0');
@@ -142,22 +142,35 @@ test('debug records are hidden until the level allows them', () => {
   assert.deepEqual(text.stderr, ['shown']);
 });
 
+test('routes warn and error records to stderr only', () => {
+  const { logger, stdout, stderr } = capture('json', 'trace');
+  logger.debug('debug record');
+  logger.output('result');
+  logger.warn('warning');
+  logger.failure('failed', { code: 'SOMETHING' });
+
+  assert.deepEqual(records(stdout).map((record) => record.level), ['debug', 'info']);
+  assert.deepEqual(records(stderr).map((record) => record.level), ['warn', 'error']);
+});
+
 test('falls back to info for an invalid MARMOTTA_LOG value', () => {
-  const stdout = [];
-  const stderr = [];
-  const logger = new Logger({ format: 'json', level: 'bogus', stdout: (line) => stdout.push(line), stderr: (line) => stderr.push(line) });
+  const { logger, stdout, stderr } = capture('json', 'bogus');
   logger.info('visible');
   logger.debug('hidden');
+  assert.deepEqual(stderr, [], 'the warning is written only by checkLevel()');
 
-  assert.match(stderr[0], /ignoring invalid MARMOTTA_LOG value/);
+  logger.checkLevel();
+  logger.checkLevel();
+  assert.equal(stderr.length, 1, 'the warning is written once');
+  assert.equal(records(stderr)[0].level, 'warn');
+  assert.match(records(stderr)[0].message, /ignoring invalid MARMOTTA_LOG value "bogus"/);
   assert.equal(records(stdout).length, 1);
 });
 
 test('rejects inherited property names as levels', () => {
   for (const level of ['constructor', '__proto__', 'toString']) {
-    const stdout = [];
-    const stderr = [];
-    const logger = new Logger({ format: 'json', level, stdout: (line) => stdout.push(line), stderr: (line) => stderr.push(line) });
+    const { logger, stdout, stderr } = capture('json', level);
+    logger.checkLevel();
     logger.info('visible');
     logger.debug('hidden');
 
@@ -167,14 +180,25 @@ test('rejects inherited property names as levels', () => {
 });
 
 test('treats an empty level as unset', () => {
-  const stdout = [];
-  const stderr = [];
-  const logger = new Logger({ format: 'json', level: '', stdout: (line) => stdout.push(line), stderr: (line) => stderr.push(line) });
+  const { logger, stdout, stderr } = capture('json', '');
+  logger.checkLevel();
   logger.info('visible');
   logger.debug('hidden');
 
   assert.deepEqual(stderr, []);
   assert.equal(records(stdout).length, 1);
+});
+
+test('accepts silent as a level that hides every diagnostic but not command output', () => {
+  for (const format of ['json', 'text']) {
+    const { logger, stdout, stderr } = capture(format, 'silent');
+    logger.checkLevel();
+    logger.error('hidden');
+    logger.output('result');
+
+    assert.deepEqual(stderr, [], format);
+    assert.equal(stdout.length, 1, format);
+  }
 });
 
 test('MARMOTTA_LOG configures the default logger level', () => {
