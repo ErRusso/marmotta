@@ -2,6 +2,10 @@
   "name": "marmotta",
   "version": "0.6.0",
   "description": "Marmotta - a Node.js native addon build tool",
+   "repository": {
+    "type": "git",
+    "url": "git+https://github.com/napi-bindings/marmotta.git"
+  },
   "author": {
     "name": "Nicola Del Gobbo",
     "email": "nicoladelgobbo@gmail.com",
@@ -55,7 +59,8 @@
     "node": ">=20"
   },
   "dependencies": {
-    "node-api-headers": "^1.3.0"
+    "node-api-headers": "^1.3.0",
+    "pino": "^10.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
