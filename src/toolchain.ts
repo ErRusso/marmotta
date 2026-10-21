@@ -4,6 +4,8 @@ import { constants } from 'node:fs';
 import { access, chmod, mkdtemp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve, win32 } from 'node:path';
+import { createInterface } from 'node:readline';
+import { logger } from './logger.js';
 import {
   MarmottaDirectoryFailedError,
   MarmottaHomeInvalidError,
@@ -119,9 +121,44 @@ function prepareZigCache(command: ZigCommand): Promise<void> {
   return prepared;
 }
 
+// Re-emits a captured child stream one line at a time. readline handles CRLF and the trailing
+// partial line at end of stream; empty lines are dropped so they do not become blank records.
+function forwardLines(stream: NodeJS.ReadableStream | null, emit: (line: string) => void): void {
+  if (!stream) return;
+  const lines = createInterface({ input: stream, crlfDelay: Infinity, terminal: false });
+  lines.on('line', (line) => {
+    if (line.length > 0) emit(line);
+  });
+  // A stream error is reported by the child's own close event; swallowing it here only prevents an
+  // unhandled 'error' event from crashing the process while the output was being reformatted.
+  stream.on('error', () => {});
+}
+
 function run(executable: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: options.cwd, env: options.env, stdio: 'inherit' });
+    // JSON output promises one JSON object per line, so raw zig/tar output cannot inherit the
+    // terminal in that mode: it is captured and re-emitted as records instead. Text mode keeps the
+    // live, streaming output users expect from a build.
+    const capture = logger.capturesChildOutput;
+    logger.debug(`Running ${basename(executable)}`, { executable, args, cwd: options.cwd ?? process.cwd() });
+    const child = spawn(executable, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
+    });
+    if (capture) {
+      const command = basename(executable);
+      // Child output is a command result, not a diagnostic: it bypasses MARMOTTA_LOG so compiler
+      // errors cannot be filtered out, and `stream` identifies which pipe it came from. stderr
+      // carries Zig's and tar's warnings and errors, so its records are "warn" records on stderr;
+      // the final failure record is the one with level "error". Each pipe keeps its own line
+      // order, but two pipes cannot keep the order between them: Zig and tar write their
+      // diagnostics to stderr only, so a note and the error it refers to stay together.
+      forwardLines(child.stdout, (line) =>
+        logger.output(line, { data: { command, stream: 'stdout' } }));
+      forwardLines(child.stderr, (line) =>
+        logger.output(line, { data: { command, stream: 'stderr' }, level: 'warn' }));
+    }
     child.once('error', (cause: Error) => {
       reject(new ToolchainSpawnFailedError(basename(executable), { cause }));
     });
@@ -224,6 +261,7 @@ async function downloadZig(requestedVersion?: string): Promise<{ version: string
     throw new ZigInstallFailedError(`No Zig ${version} package available for ${platformKey()}.`);
   }
 
+  logger.debug(`Downloading Zig ${version}`, { url: artifact.tarball });
   let archiveResponse: Response;
   try {
     archiveResponse = await fetch(artifact.tarball);
@@ -313,12 +351,19 @@ export async function ensureZig(version?: string): Promise<ZigCommand> {
   const home = marmottaHome();
   const zigDirectory = configuredZigDirectory();
   const zig = zigDirectory === undefined ? await findZig(home, version) : await configuredZig(zigDirectory);
-  return withZigEnvironment(home, zig);
+  const command = withZigEnvironment(home, zig);
+  logger.debug(`Using Zig: ${command.executable}`, {
+    executable: command.executable,
+    home: home.path,
+    cacheDirectory: command.cacheDirectory,
+  });
+  return command;
 }
 
 
 export async function listZigVersions(): Promise<string[]> {
   const root = zigRoot(marmottaHome());
+  logger.debug(`Reading Zig versions in ${root}`);
   try {
     return (await readdir(root, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
