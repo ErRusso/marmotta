@@ -22,8 +22,10 @@ const suffix = process.platform === 'win32' ? '.exe' : '';
 // that platform with the same spelling as the Bun artifacts (windows, not win32) to keep checksums
 // and download scripts consistent.
 const platform = process.platform === 'win32' ? 'windows' : process.platform;
+// The executable goes to out/, like the Bun artifacts, so .gitignore, smoke commands and the docs
+// all point at one place; build/ only holds intermediate files (bundle, SEA config, headers archive).
 const output = process.argv[2]
-  ?? join(root, 'build', `marmotta-v${packageJson.version}-${platform}-${process.arch}${suffix}`);
+  ?? join(root, 'out', `marmotta-v${packageJson.version}-${platform}-${process.arch}${suffix}`);
 const bundle = join(root, 'build', 'marmotta.bundle.mjs');
 const headers = join(root, 'build', 'node-api-headers.tar');
 const seaConfig = join(root, 'build', 'sea-config.json');
@@ -46,6 +48,15 @@ await build({
   target: `node${major}`,
   sourcemap: 'inline',
   logLevel: 'info',
+  // Dependencies such as pino call require() for Node.js built-ins. esbuild cannot turn those calls
+  // into imports in an ESM bundle and leaves a shim that throws "Dynamic require ... is not
+  // supported" unless a real require() exists in the module scope.
+  banner: {
+    js: [
+      "import { createRequire as __marmottaCreateRequire } from 'node:module';",
+      'const require = __marmottaCreateRequire(process.execPath);',
+    ].join('\n'),
+  },
 });
 
 await mkdir(dirname(output), { recursive: true });

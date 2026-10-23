@@ -109,8 +109,9 @@ Notes on the standalone binaries:
 - They behave like the npm package: `NODE_OPTIONS` does not affect them, and a stray
   `.env` or `bunfig.toml` in the project directory does not change what they do.
   Like any Bun program, they do honor `BUN_OPTIONS`.
-- The macOS binaries carry an ad-hoc signature with the entitlements JavaScriptCore
-  needs. If macOS blocks a downloaded binary, remove the quarantine attribute with
+- The macOS binaries carry an ad-hoc signature with the hardened runtime enabled and
+  the JIT entitlements JavaScriptCore needs; they are not notarized. If macOS blocks a
+  downloaded binary, remove the quarantine attribute with
   `xattr -d com.apple.quarantine <file>` (or control-click and open it).
 - The musl binaries link against `libstdc++`, which a stock Alpine image does not ship.
   Install it first: `apk add libstdc++`.

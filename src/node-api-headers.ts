@@ -16,20 +16,26 @@ type NodeApiHeadersModule = { include_dir: string; def_paths: { node_api_def: st
 // that embeds a different version install beside the old copy instead of reusing it.
 const assetName = 'node-api-headers.tar';
 
-let resolved: Promise<NodeApiHeaders> | undefined;
+// Keyed by the Marmotta home: a programmatic caller that switches MARMOTTA_HOME must not receive
+// the first home's paths, which point at another extraction (or, under npm, are home-independent).
+const resolved = new Map<string, Promise<NodeApiHeaders>>();
 
 // Zig compiles in a separate process, so the headers must exist as real files. npm installs resolve
 // them from node_modules; a standalone executable extracts the embedded archive once into the
 // Marmotta home and reuses the extracted copy for every later build.
 export function resolveNodeApiHeaders(home: MarmottaHome): Promise<NodeApiHeaders> {
-  resolved ??= (async () => (isStandalone() ? extractEmbeddedHeaders(home) : npmHeaders()))().catch(
+  const cached = resolved.get(home.path);
+  if (cached) return cached;
+
+  const pending = (async () => (isStandalone() ? extractEmbeddedHeaders(home) : npmHeaders()))().catch(
     (error: unknown) => {
       // A transient failure must not be cached forever: programmatic callers may retry.
-      resolved = undefined;
+      if (resolved.get(home.path) === pending) resolved.delete(home.path);
       throw error;
     },
   );
-  return resolved;
+  resolved.set(home.path, pending);
+  return pending;
 }
 
 function npmHeaders(): NodeApiHeaders {

@@ -43,6 +43,8 @@ const stagedHeaders = join(root, 'dist', 'node-api-headers.tar');
 await copyFile(headers, stagedHeaders);
 // A failed build must not skip the cleanup of the staged archive: `dist` is published to npm, so a
 // checkout that failed to build would otherwise ship dist/node-api-headers.tar on the next publish.
+// package.json's "files" excludes that path as a guard for the cases this cleanup cannot cover
+// (SIGKILL, a crashed runner).
 let exitCode = 0;
 try {
   await mkdir(join(root, 'out'), { recursive: true });
@@ -69,7 +71,9 @@ try {
     }
 
     // An unsigned macOS executable is rejected by Gatekeeper once it carries the quarantine
-    // attribute; the JIT entitlements let the embedded JavaScriptCore engine compile code.
+    // attribute. The hardened runtime is enabled on purpose so the JIT entitlements apply to the
+    // embedded JavaScriptCore engine; the ad-hoc identity keeps the binary runnable but is not
+    // notarized, which is why the README documents clearing the quarantine attribute.
     // codesign only exists on macOS, so a darwin target cross-built elsewhere stays unsigned and
     // must be signed on a Mac before release (the release workflow builds darwin on macOS).
     if (target.includes('darwin')) {
@@ -77,9 +81,9 @@ try {
       if (process.platform !== 'darwin') {
         console.warn(`warning: ${output} is unsigned; run codesign on macOS before releasing it.`);
       } else {
-        const sign = spawnSync('codesign', ['--force', '--sign', '-', '--entitlements', entitlements, output], {
-          stdio: 'inherit',
-        });
+        const sign = spawnSync('codesign', [
+          '--force', '--sign', '-', '--options', 'runtime', '--entitlements', entitlements, output,
+        ], { stdio: 'inherit' });
         if (sign.status !== 0) {
           console.error('codesign failed; the executable will not pass Gatekeeper on macOS.');
           exitCode = sign.status ?? 1;

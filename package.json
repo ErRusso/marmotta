@@ -41,12 +41,14 @@
   },
   "files": [
     "dist",
+    "!dist/node-api-headers.tar",
     "README.md",
     "LICENSE",
     "marmotta.jpg"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "version": "node scripts/sync-version.mjs && git add src/version.ts",
     "check:version": "node scripts/check-version.mjs",
     "test": "npm run check:version && npm run build && node --test",
     "build:headers": "node scripts/build-headers-asset.mjs",

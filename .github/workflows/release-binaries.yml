@@ -83,6 +83,9 @@ jobs:
 
       - name: Build and test
         shell: bash
+        # Zig and Deno/Bun are deliberately not installed here: the integration tests that need them
+        # skip, and scripts/smoke.mjs below is the end-to-end check for this target. The regular CI
+        # matrix sets both up and runs the full suite.
         run: npm test
 
       - name: Build the Node-API headers archive
@@ -139,8 +142,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      # This job has write and OIDC permissions, so its actions are pinned to commit SHAs rather than
+      # movable tags: a moved tag could otherwise publish malicious binaries with valid attestations.
       - name: Download executables
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
@@ -150,12 +155,12 @@ jobs:
         run: sha256sum marmotta-* > SHA256SUMS
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: dist/*
 
       - name: Attach to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/*
           generate_release_notes: true

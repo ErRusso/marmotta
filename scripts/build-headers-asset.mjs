@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Stages the Node-API headers from node_modules into build/node-api-headers.tar, the archive the
 // standalone executables embed (Node.js SEA "assets", Bun "--asset"). The archive's top-level
-// directory is named node-api-headers-<version>, so extracting it also records which version is
-// installed in the Marmotta home and a header upgrade re-extracts automatically.
+// directory is named node-api-headers-<version> for readability; the executable installs it under a
+// hash of the archive contents, so a binary embedding a newer version never reuses an old extraction.
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
