@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     return;
   }
   if (parsed.version) {
-    logger.output('marmotta 0.6.0');
+    logger.output('marmotta 0.7.0');
     return;
   }
 

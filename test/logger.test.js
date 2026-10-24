@@ -51,11 +51,11 @@ test('writes one JSON record per call to the matching stream', () => {
 test('keeps text output plain, multi-line, and includes the data payload', () => {
   const { logger, stdout, stderr } = capture('text');
 
-  logger.info('marmotta 0.6.0');
+  logger.info('marmotta 0.7.0');
   logger.info('Commands:\n  build\n  clean');
   logger.warn('careful', { code: 'SOMETHING' });
 
-  assert.deepEqual(stdout, ['marmotta 0.6.0', 'Commands:\n  build\n  clean']);
+  assert.deepEqual(stdout, ['marmotta 0.7.0', 'Commands:\n  build\n  clean']);
   assert.match(stderr[0], /^careful\n/);
   assert.match(stderr[0], /code: 'SOMETHING'/);
 });
@@ -75,17 +75,17 @@ test('uses the same sink contract in both formats', () => {
 
 test('never filters command output with the level', () => {
   const json = capture('json', 'error');
-  json.logger.output('marmotta 0.6.0');
+  json.logger.output('marmotta 0.7.0');
   json.logger.output('compiler error', { data: { command: 'zig', stream: 'stderr' }, level: 'warn' });
   json.logger.info('hidden');
   json.logger.debug('hidden');
-  assert.deepEqual(records(json.stdout).map((record) => record.message), ['marmotta 0.6.0']);
+  assert.deepEqual(records(json.stdout).map((record) => record.message), ['marmotta 0.7.0']);
   assert.deepEqual(records(json.stderr).map((record) => [record.level, record.message]), [['warn', 'compiler error']]);
 
   const text = capture('text', 'error');
-  text.logger.output('marmotta 0.6.0');
+  text.logger.output('marmotta 0.7.0');
   text.logger.info('hidden');
-  assert.deepEqual(text.stdout, ['marmotta 0.6.0']);
+  assert.deepEqual(text.stdout, ['marmotta 0.7.0']);
 });
 
 test('emits records for empty messages instead of dropping them', () => {
