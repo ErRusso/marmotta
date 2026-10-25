@@ -41,7 +41,7 @@ Marmotta builds Node.js native addons written in C or C++ with [Node-API](https:
 
 ## Requirements
 
-- Node.js 20 or later and npm.
+- Node.js 20 or later and npm. To run Marmotta without Node.js, use a [standalone binary](#standalone-binary) instead.
 - A C or C++ Node-API addon source file (`.c`, `.cc`, `.cpp`, or `.cxx`).
 - `tar` and internet access when Marmotta needs to download Zig.
 
@@ -69,6 +69,53 @@ The same CLI is also published as `@napi-bindings/marmotta`. To install that pac
 npm install --save-dev @napi-bindings/marmotta
 npx marmotta --help
 ```
+
+### Standalone binary
+
+Every release ships a self-contained executable per platform. It embeds the CLI and the
+Node-API headers, so Node.js and npm are not required to run it; Zig is still downloaded
+on first use, exactly as with the npm package.
+
+1. Download the file for your platform from the
+   [GitHub releases page](https://github.com/napi-bindings/marmotta/releases), for
+   example `marmotta-v0.7.0-linux-x64`.
+2. Make it executable and put it on your `PATH`:
+
+   ```sh
+   chmod +x marmotta-v0.7.0-linux-x64
+   sudo mv marmotta-v0.7.0-linux-x64 /usr/local/bin/marmotta
+   marmotta --version
+   ```
+
+   On Windows, rename the file to `marmotta.exe` and place it in a directory on `PATH`.
+
+| File | Platform |
+| --- | --- |
+| `marmotta-vX.Y.Z-linux-x64` | Linux x64 (glibc) |
+| `marmotta-vX.Y.Z-linux-arm64` | Linux ARM64 (glibc) |
+| `marmotta-vX.Y.Z-linux-x64-musl` | Linux x64 (musl, e.g. Alpine) |
+| `marmotta-vX.Y.Z-linux-arm64-musl` | Linux ARM64 (musl, e.g. Alpine) |
+| `marmotta-vX.Y.Z-darwin-x64` | macOS, Intel |
+| `marmotta-vX.Y.Z-darwin-arm64` | macOS, Apple silicon |
+| `marmotta-vX.Y.Z-windows-x64.exe` | Windows x64 |
+| `marmotta-vX.Y.Z-windows-arm64.exe` | Windows ARM64 |
+
+Each release includes a `SHA256SUMS` file and GitHub build provenance attestations, so
+a download can be checked with `sha256sum --check --ignore-missing SHA256SUMS` and
+`gh attestation verify`.
+
+Notes on the standalone binaries:
+
+- They behave like the npm package: `NODE_OPTIONS` does not affect them, and a stray
+  `.env` or `bunfig.toml` in the project directory does not change what they do.
+  Like any Bun program, they do honor `BUN_OPTIONS`.
+- The macOS binaries carry an ad-hoc signature with the hardened runtime enabled and
+  the JIT entitlements JavaScriptCore needs; they are not notarized. If macOS blocks a
+  downloaded binary, remove the quarantine attribute with
+  `xattr -d com.apple.quarantine <file>` (or control-click and open it).
+- The musl binaries link against `libstdc++`, which a stock Alpine image does not ship.
+  Install it first: `apk add libstdc++`.
+- The binaries are built with [`bun build --compile`](https://bun.com/docs/bundler/executables).
 
 ## Quick start
 

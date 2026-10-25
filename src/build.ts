@@ -1,14 +1,10 @@
-import { createRequire } from 'node:module';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, resolve } from 'node:path';
 import { loadProject, type ProjectConfig } from './project.js';
 import { createBuildDirectory, ensureZig, runZig } from './toolchain.js';
+import { resolveNodeApiHeaders } from './node-api-headers.js';
 import { hostImportsSource, readDefSymbols } from './windows-host.js';
 import { logger } from './logger.js';
-
-const require = createRequire(import.meta.url);
-type NodeApiHeaders = { include_dir: string; def_paths: { node_api_def: string } };
-const nodeApiHeaders = require('node-api-headers') as NodeApiHeaders;
 
 export type BuildOptions = {
   directory: string;
@@ -39,10 +35,13 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
   }
 
   const zig = await ensureZig(config.zigVersion);
+  // The home Zig resolved travels with the command, so both the toolchain and the headers land in
+  // the same MARMOTTA_HOME.
+  const headers = await resolveNodeApiHeaders(zig.home);
   const temporaryDir = await createBuildDirectory(zig);
   const hasCpp = config.sources.some(isCpp);
   const windowsTarget = isWindowsTarget(options.target);
-  const includeFlags = ['-I', nodeApiHeaders.include_dir, ...config.includeDirs.flatMap((item) => ['-I', item])];
+  const includeFlags = ['-I', headers.includeDir, ...config.includeDirs.flatMap((item) => ['-I', item])];
   const objects: string[] = [];
   // NODE_GYP_MODULE_NAME is used as a bare token, so it must be a valid C identifier.
   const moduleName = config.name.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
@@ -68,7 +67,7 @@ async function compile(config: ProjectConfig, options: BuildOptions, cleanOnly: 
       // Bind Node-API to whichever process loads the addon (node.exe, Electron, ...), not to NODE.EXE.
       const hostImports = join(temporaryDir, 'node-api-host.c');
       const object = join(temporaryDir, 'node-api-host.o');
-      await writeFile(hostImports, hostImportsSource(await readDefSymbols(nodeApiHeaders.def_paths.node_api_def)));
+      await writeFile(hostImports, hostImportsSource(await readDefSymbols(headers.nodeApiDefPath)));
       await runZig(zig, ['cc', '-c', hostImports, '-o', object, ...commonFlags], options.directory);
       objects.push(object);
     }
