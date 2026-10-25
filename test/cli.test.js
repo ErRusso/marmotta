@@ -345,7 +345,7 @@ test('does not let MARMOTTA_LOG hide command output', () => {
     const env = { ...process.env, MARMOTTA_LOG: level };
     const version = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8', env });
     assert.equal(version.status, 0, level);
-    assert.equal(version.stdout, 'marmotta 0.6.0\n', level);
+    assert.equal(version.stdout, 'marmotta 0.7.0\n', level);
 
     const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8', env });
     assert.equal(help.status, 0, level);
@@ -392,13 +392,13 @@ test('warns about an invalid MARMOTTA_LOG value in the requested format', () => 
   const env = { ...process.env, MARMOTTA_LOG: 'bogus' };
   const json = spawnSync(process.execPath, [cli, '--version', '--json'], { encoding: 'utf8', env });
   assert.equal(json.status, 0, json.stderr);
-  assert.equal(JSON.parse(json.stdout).message, 'marmotta 0.6.0');
+  assert.equal(JSON.parse(json.stdout).message, 'marmotta 0.7.0');
   const warning = JSON.parse(json.stderr);
   assert.equal(warning.level, 'warn');
   assert.match(warning.message, /ignoring invalid MARMOTTA_LOG value "bogus"/);
 
   const text = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8', env });
-  assert.equal(text.stdout, 'marmotta 0.6.0\n');
+  assert.equal(text.stdout, 'marmotta 0.7.0\n');
   assert.match(text.stderr, /^marmotta: ignoring invalid MARMOTTA_LOG value "bogus"/);
 });
 
@@ -458,7 +458,7 @@ test('keeps Zig compiler errors in --json output when MARMOTTA_LOG=error', { ski
 test('keeps the plain text output for --version and --help', () => {
   const version = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8' });
   assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stdout, 'marmotta 0.6.0\n');
+  assert.equal(version.stdout, 'marmotta 0.7.0\n');
   assert.equal(version.stderr.length, 0);
 
   const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
