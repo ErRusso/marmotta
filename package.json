@@ -1,6 +1,6 @@
 {
   "name": "marmotta",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Marmotta - a Node.js native addon build tool",
   "repository": {
     "type": "git",

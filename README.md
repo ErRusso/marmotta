@@ -78,12 +78,12 @@ on first use, exactly as with the npm package.
 
 1. Download the file for your platform from the
    [GitHub releases page](https://github.com/napi-bindings/marmotta/releases), for
-   example `marmotta-v0.7.0-linux-x64`.
+   example `marmotta-v0.8.0-linux-x64`.
 2. Make it executable and put it on your `PATH`:
 
    ```sh
-   chmod +x marmotta-v0.7.0-linux-x64
-   sudo mv marmotta-v0.7.0-linux-x64 /usr/local/bin/marmotta
+   chmod +x marmotta-v0.8.0-linux-x64
+   sudo mv marmotta-v0.8.0-linux-x64 /usr/local/bin/marmotta
    marmotta --version
    ```
 
@@ -276,7 +276,7 @@ List and remove toolchain versions managed by Marmotta:
 
 ```sh
 npx marmotta list
-npx marmotta remove 0.7.0
+npx marmotta remove 0.8.0
 ```
 
 `list` and `remove` operate only on versions managed by Marmotta; they do not list, uninstall, or modify a system Zig executable found on `PATH`.
