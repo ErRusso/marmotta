@@ -18,3 +18,6 @@ AGENTS.md
 
 # Ignore .githuman
 .githuman
+
+# Ignore cto toolkit files
+.cto-toolkit/

@@ -20,16 +20,18 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
 
       - name: Set up Zig
-        uses: goto-bus-stop/setup-zig@v2
+        # No Node 24 release of setup-zig exists yet (v2.2.1 still declares node20), so GitHub runs it on
+        # Node 24 with a deprecation warning; bump it once upstream ships one.
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
 

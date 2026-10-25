@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { constants } from 'node:fs';
+import { constants, existsSync } from 'node:fs';
 import { access, chmod, mkdtemp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve, win32 } from 'node:path';
@@ -279,6 +279,15 @@ async function downloadZig(requestedVersion?: string): Promise<{ version: string
   return { version, tarball: artifact.tarball, archive };
 }
 
+// Zig ships .zip archives for Windows, which only bsdtar extracts. Windows 10 1803 and later bundle bsdtar
+// as System32\tar.exe, but Git Bash, MSYS2 and Cygwin put GNU tar first on PATH, and GNU tar rejects a zip
+// with "This does not look like a tar archive". The bundled one is therefore preferred whenever it exists.
+export function tarExecutable(): string {
+  if (process.platform !== 'win32') return 'tar';
+  const bundled = win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+  return existsSync(bundled) ? bundled : 'tar';
+}
+
 // Installs the contents of an archive under `root` without ever exposing a partial installation: the
 // archive is unpacked into a private staging directory and the result is moved into place with a
 // single rename. `destination` must be specific to the archive contents (a version, or a hash of the
@@ -302,7 +311,7 @@ export async function installArchive(options: {
     // tar runs from the archive's directory and is given relative paths: GNU tar reads a colon before
     // the first slash of an archive name as the remote syntax `host:path`, so an absolute Windows
     // path ("C:\...") would make it try to reach the host "C". GNU tar and bsdtar both accept this.
-    await run('tar', ['-xf', archiveName, '-C', 'staged'], { cwd: temporaryDir });
+    await run(tarExecutable(), ['-xf', archiveName, '-C', 'staged'], { cwd: temporaryDir });
     const entries = await readdir(stagingDir, { withFileTypes: true });
     const extracted = entries.length === 1 && entries[0]?.isDirectory()
       ? join(stagingDir, entries[0].name)

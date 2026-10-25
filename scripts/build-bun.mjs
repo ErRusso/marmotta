@@ -77,6 +77,11 @@ try {
     // codesign only exists on macOS, so a darwin target cross-built elsewhere stays unsigned and
     // must be signed on a Mac before release (the release workflow builds darwin on macOS).
     if (target.includes('darwin')) {
+      // The hardened runtime blocks the writable executable memory JavaScriptCore needs, so without
+      // allow-jit Bun is terminated on Apple silicon. Zig runs as a separate process, not loaded into
+      // this one, so library validation stays enabled. These notes live here and not in the plist:
+      // codesign parses entitlements with a strict XML parser, and a comment containing "--" (such
+      // as a codesign flag) is invalid XML that makes it reject the whole file.
       const entitlements = join(root, 'scripts', 'entitlements.plist');
       if (process.platform !== 'darwin') {
         console.warn(`warning: ${output} is unsigned; run codesign on macOS before releasing it.`);

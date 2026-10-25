@@ -4,7 +4,7 @@ import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { installArchive } from '../dist/toolchain.js';
+import { installArchive, tarExecutable } from '../dist/toolchain.js';
 
 const tarAvailable = spawnSync('tar', ['--version'], { stdio: 'ignore' }).status === 0;
 const skip = !tarAvailable && 'tar is required to exercise the archive installer';
@@ -93,6 +93,44 @@ test('concurrent installers of the same archive all succeed', { skip }, async ()
     assert.equal(await readFile(join(destination, 'include', 'node_api.h'), 'utf8'), 'original\n');
     assert.deepEqual(await leftoverInstallDirectories(root), []);
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('extracts a Windows zip with the bundled tar.exe regardless of PATH', {
+  skip: process.platform !== 'win32' && 'Zig only ships zip archives for Windows',
+}, async () => {
+  // Git Bash, MSYS2 and Cygwin put GNU tar first on PATH, which cannot read the zip archives Zig
+  // ships for Windows. Emptying PATH proves the installer does not depend on which tar it finds there.
+  const directory = await mkdtemp(join(tmpdir(), 'marmotta-archive-'));
+  const originalPath = process.env.PATH;
+  try {
+    const staging = join(directory, 'staging');
+    await mkdir(join(staging, 'zig-windows'), { recursive: true });
+    await writeFile(join(staging, 'zig-windows', 'zig.exe'), '');
+    // -a picks the format from the suffix, so bsdtar writes a real zip like the ones Zig publishes.
+    const created = spawnSync(tarExecutable(), ['-a', '-cf', 'zig.zip', '-C', 'staging', 'zig-windows'], {
+      cwd: directory,
+      encoding: 'utf8',
+    });
+    assert.equal(created.status, 0, created.stderr);
+    const archive = await readFile(join(directory, 'zig.zip'));
+    assert.equal(archive.subarray(0, 2).toString('latin1'), 'PK', 'the fixture must be a zip archive');
+
+    const root = join(directory, 'root');
+    await mkdir(root);
+    const destination = join(root, '0.16.0');
+    process.env.PATH = join(directory, 'empty-path');
+    await installArchive({
+      root,
+      archive,
+      archiveName: 'zig.zip',
+      destination,
+      isComplete: (candidate) => access(join(candidate, 'zig.exe')).then(() => true, () => false),
+    });
+    await access(join(destination, 'zig.exe'));
+  } finally {
+    process.env.PATH = originalPath;
     await rm(directory, { recursive: true, force: true });
   }
 });

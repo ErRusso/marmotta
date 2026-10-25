@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- The executable is signed with `codesign --options runtime`, and the hardened runtime blocks the
-       writable executable memory JavaScriptCore needs; without allow-jit Bun is terminated on Apple
-       silicon. Zig is started as a separate process, not loaded into this one, so library validation
-       stays enabled. -->
   <key>com.apple.security.cs.allow-jit</key>
   <true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
