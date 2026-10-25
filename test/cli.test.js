@@ -8,6 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+// Read from package.json so a version bump never needs the expected --version output edited by hand.
+// A missing or malformed package.json must still fail the file, but with a message naming the cause.
+const packageVersion = await readFile(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')
+  .then((source) => JSON.parse(source).version)
+  .catch((error) => {
+    throw new Error('cli.test.js needs package.json to know the expected --version output.', { cause: error });
+  });
 
 // Every CLI process inherits this environment: run it with Marmotta's defaults, not the developer's own settings.
 // node --test runs each file in its own process, and Windows variable names are case-insensitive.
@@ -43,13 +50,12 @@ test('shows help without initializing the toolchain', () => {
   assert.match(result.stdout, /MARMOTTA_ZIG_DIR/);
 });
 
-test('reports the version declared in package.json', async () => {
+test('reports the version declared in package.json', () => {
   // The CLI reads the version from src/version.ts because a standalone executable cannot read
   // package.json at runtime; scripts/check-version.mjs and this test keep the two in step.
-  const packageJson = JSON.parse(await readFile(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'));
   const result = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, `marmotta ${packageJson.version}\n`);
+  assert.equal(result.stdout, `marmotta ${packageVersion}\n`);
   assert.equal(result.stderr, '');
 });
 
@@ -345,7 +351,7 @@ test('does not let MARMOTTA_LOG hide command output', () => {
     const env = { ...process.env, MARMOTTA_LOG: level };
     const version = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8', env });
     assert.equal(version.status, 0, level);
-    assert.equal(version.stdout, 'marmotta 0.7.0\n', level);
+    assert.equal(version.stdout, `marmotta ${packageVersion}\n`, level);
 
     const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8', env });
     assert.equal(help.status, 0, level);
@@ -392,13 +398,13 @@ test('warns about an invalid MARMOTTA_LOG value in the requested format', () => 
   const env = { ...process.env, MARMOTTA_LOG: 'bogus' };
   const json = spawnSync(process.execPath, [cli, '--version', '--json'], { encoding: 'utf8', env });
   assert.equal(json.status, 0, json.stderr);
-  assert.equal(JSON.parse(json.stdout).message, 'marmotta 0.7.0');
+  assert.equal(JSON.parse(json.stdout).message, `marmotta ${packageVersion}`);
   const warning = JSON.parse(json.stderr);
   assert.equal(warning.level, 'warn');
   assert.match(warning.message, /ignoring invalid MARMOTTA_LOG value "bogus"/);
 
   const text = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8', env });
-  assert.equal(text.stdout, 'marmotta 0.7.0\n');
+  assert.equal(text.stdout, `marmotta ${packageVersion}\n`);
   assert.match(text.stderr, /^marmotta: ignoring invalid MARMOTTA_LOG value "bogus"/);
 });
 
@@ -458,7 +464,7 @@ test('keeps Zig compiler errors in --json output when MARMOTTA_LOG=error', { ski
 test('keeps the plain text output for --version and --help', () => {
   const version = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8' });
   assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stdout, 'marmotta 0.7.0\n');
+  assert.equal(version.stdout, `marmotta ${packageVersion}\n`);
   assert.equal(version.stderr.length, 0);
 
   const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
