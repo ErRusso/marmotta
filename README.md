@@ -117,6 +117,24 @@ Notes on the standalone binaries:
   Install it first: `apk add libstdc++`.
 - The binaries are built with [`bun build --compile`](https://bun.com/docs/bundler/executables).
 
+### Package managers
+
+Each release also ships native packages for Linux, built from the standalone executables, so
+Node.js and npm are not required:
+
+| Package | Platform | Install |
+| --- | --- | --- |
+| `.deb` | Debian, Ubuntu | `sudo apt install ./marmotta_<version>_amd64.deb` |
+| `.rpm` | Fedora, RHEL | `sudo dnf install ./marmotta-<version>-1.x86_64.rpm` |
+| `.apk` | Alpine | `sudo apk add --allow-untrusted ./marmotta-<version>-r0.x86_64.apk` |
+| `.pkg.tar.zst` | Arch Linux | `sudo pacman -U ./marmotta-<version>-1-x86_64.pkg.tar.zst` |
+
+The ARM64 variants use the same names with `arm64`/`aarch64` in place of `amd64`/`x86_64`.
+Download them from the [releases page](https://github.com/napi-bindings/marmotta/releases).
+Homebrew, AUR, Nix, Scoop, and winget recipes are generated for every release and included in
+`marmotta-v<version>-packaging.tar.gz`; see [`packaging/README.md`](packaging/README.md) for the
+publishing and installation instructions.
+
 ## Quick start
 
 Create a Node.js project with a C or C++ Node-API source file. For example, save this as `src/hello.c`:

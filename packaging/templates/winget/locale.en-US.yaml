@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: napi-bindings.marmotta
+PackageVersion: "{{VERSION}}"
+PackageLocale: en-US
+Publisher: napi-bindings
+PublisherUrl: {{REPOSITORY}}
+PublisherSupportUrl: {{REPOSITORY}}/issues
+PackageName: Marmotta
+PackageUrl: {{REPOSITORY}}
+License: Apache-2.0
+LicenseUrl: {{LICENSE_URL}}
+ShortDescription: {{DESCRIPTION}}
+Description: Marmotta builds Node.js native addons written in C or C++ with Node-API using Zig as the compiler toolchain.
+Moniker: marmotta
+Tags:
+  - nodejs
+  - node-api
+  - native
+  - addon
+  - zig
+  - build
+  - c
+  - cpp
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

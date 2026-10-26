@@ -1,0 +1,34 @@
+# Maintainer: {{MAINTAINER}}
+pkgname=marmotta-bin
+pkgver={{VERSION}}
+pkgrel=1
+pkgdesc='{{DESCRIPTION}}'
+arch=('x86_64' 'aarch64')
+url='{{REPOSITORY}}'
+license=('Apache-2.0')
+depends=('glibc' 'gcc-libs')
+provides=('marmotta')
+conflicts=('marmotta')
+options=('!strip' '!debug')
+
+source_x86_64=(
+  "{{REPOSITORY}}/releases/download/v${pkgver}/marmotta-v${pkgver}-linux-x64"
+  "LICENSE::{{LICENSE_URL}}"
+)
+sha256sums_x86_64=('{{SHA256_LINUX_X64}}' '{{SHA256_LICENSE}}')
+
+source_aarch64=(
+  "{{REPOSITORY}}/releases/download/v${pkgver}/marmotta-v${pkgver}-linux-arm64"
+  "LICENSE::{{LICENSE_URL}}"
+)
+sha256sums_aarch64=('{{SHA256_LINUX_ARM64}}' '{{SHA256_LICENSE}}')
+
+package() {
+  local _asset="marmotta-v${pkgver}-linux-x64"
+  if [[ $CARCH == aarch64 ]]; then
+    _asset="marmotta-v${pkgver}-linux-arm64"
+  fi
+
+  install -Dm755 "$srcdir/$_asset" "$pkgdir/usr/bin/marmotta"
+  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

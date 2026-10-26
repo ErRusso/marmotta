@@ -1,0 +1,18 @@
+# Maintainer: {{MAINTAINER}}
+pkgname=marmotta
+pkgver={{VERSION}}
+pkgrel=0
+pkgdesc="{{DESCRIPTION}}"
+url="{{REPOSITORY}}"
+arch="{{ALPINE_ARCH}}"
+license="Apache-2.0"
+depends="libstdc++ libgcc"
+source="{{REPOSITORY}}/releases/download/v$pkgver/marmotta-v$pkgver-{{ALPINE_PLATFORM}}
+	{{LICENSE_URL}}"
+sha256sums="{{ALPINE_SHA256}}
+	{{SHA256_LICENSE}}"
+
+package() {
+	install -Dm755 "$srcdir/marmotta-v$pkgver-{{ALPINE_PLATFORM}}" "$pkgdir/usr/bin/marmotta"
+	install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

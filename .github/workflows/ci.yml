@@ -48,3 +48,33 @@ jobs:
 
       - name: Build and test
         run: npm test
+
+  packaging:
+    name: Packaging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install nfpm and package verification tools
+        # Pinned so package generation is reproducible; bump deliberately together with
+        # scripts/packages.mjs and the release workflow.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm zstd
+          version=2.43.0
+          archive="nfpm_${version}_Linux_x86_64.tar.gz"
+          curl -fsSLo "/tmp/$archive" "https://github.com/goreleaser/nfpm/releases/download/v${version}/$archive"
+          echo "a80d5f724ed70b192ffa8a2bde469c013cef559c8afa3441eb51dd9a918beb6b  /tmp/$archive" | sha256sum -c -
+          sudo tar -xzf "/tmp/$archive" -C /usr/local/bin nfpm
+          nfpm --version
+
+      - name: Test package generation and native packages
+        env:
+          NFPM: /usr/local/bin/nfpm
+        run: node --test test/packaging.test.js

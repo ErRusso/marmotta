@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+PackageIdentifier: napi-bindings.marmotta
+PackageVersion: "{{VERSION}}"
+InstallerType: portable
+Commands:
+  - marmotta
+UpgradeBehavior: install
+Installers:
+  - Architecture: x64
+    InstallerUrl: {{REPOSITORY}}/releases/download/v{{VERSION}}/{{ASSET_WINDOWS_X64}}
+    InstallerSha256: {{SHA256_WINDOWS_X64}}
+  - Architecture: arm64
+    InstallerUrl: {{REPOSITORY}}/releases/download/v{{VERSION}}/{{ASSET_WINDOWS_ARM64}}
+    InstallerSha256: {{SHA256_WINDOWS_ARM64}}
+ManifestType: installer
+ManifestVersion: 1.10.0

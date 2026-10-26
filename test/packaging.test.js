@@ -1,0 +1,203 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+
+import {
+  ASSETS,
+  assetName,
+  buildPackages,
+  checksumsFromArtifacts,
+  hexToSri,
+  parseChecksums,
+  renderPackages,
+  verifyPackage,
+} from '../scripts/packages.mjs';
+
+const version = '1.2.3';
+
+function hasCommand(command) {
+  if (process.platform === 'win32') return false;
+  const result = spawnSync(command, ['--version'], { stdio: 'ignore' });
+  return !result.error && result.status === 0;
+}
+
+async function writeFixtures(directory) {
+  for (const asset of ASSETS) {
+    const name = assetName(version, asset);
+    await writeFile(join(directory, name), `#!/bin/sh\necho "marmotta ${version}"\n`, { mode: 0o755 });
+  }
+  return checksumsFromArtifacts(directory, version);
+}
+
+async function fixture() {
+  const directory = await mkdtemp(join(tmpdir(), 'marmotta-packaging-'));
+  const artifacts = join(directory, 'artifacts');
+  const out = join(directory, 'out');
+  const { mkdir } = await import('node:fs/promises');
+  await mkdir(artifacts, { recursive: true });
+  const checksums = await writeFixtures(artifacts);
+  return { directory, artifacts, out, checksums };
+}
+
+test('parseChecksums accepts GNU sha256sum output', () => {
+  const first = 'a'.repeat(64);
+  const second = 'B'.repeat(64);
+  const checksums = parseChecksums(
+    `${first}  marmotta-v1.2.3-linux-x64\n${second} *marmotta-v1.2.3-windows-x64.exe\n\nnot a checksum\n`,
+  );
+
+  assert.equal(checksums.get('marmotta-v1.2.3-linux-x64'), first);
+  assert.equal(checksums.get('marmotta-v1.2.3-windows-x64.exe'), second.toLowerCase());
+  assert.equal(checksums.size, 2);
+});
+
+test('hexToSri converts a SHA-256 digest to the Nix SRI format', () => {
+  assert.equal(hexToSri('00'.repeat(32)), 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
+  assert.throws(() => hexToSri('not-a-hash'), /Invalid SHA-256 hash/);
+});
+
+test('renderPackages writes every recipe with checksums and no placeholders', async (t) => {
+  const { directory, artifacts, out, checksums } = await fixture();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const manifest = await renderPackages({
+    version,
+    checksums,
+    outDir: out,
+    artifactsDir: artifacts,
+    changelogDate: '2026-01-02',
+  });
+
+  assert.equal(manifest.version, version);
+  assert.equal(Object.keys(manifest.assets).length, ASSETS.length);
+  assert.equal(manifest.recipes.length, 11);
+  assert.equal(manifest.packageConfigs.length, 8);
+
+  const homebrew = await readFile(join(out, 'recipes/homebrew/marmotta.rb'), 'utf8');
+  assert.match(homebrew, /class Marmotta < Formula/);
+  assert.match(homebrew, /marmotta-v1\.2\.3-darwin-arm64/);
+  assert.match(homebrew, new RegExp(manifest.assets['darwin-arm64'].sha256));
+  assert.match(homebrew, /marmotta-v1\.2\.3-linux-x64/);
+  assert.doesNotMatch(homebrew, /\{\{/);
+
+  const aur = await readFile(join(out, 'recipes/aur/PKGBUILD'), 'utf8');
+  assert.match(aur, /pkgname=marmotta-bin/);
+  assert.match(aur, /source_x86_64=/);
+  assert.match(aur, /source_aarch64=/);
+  assert.match(aur, new RegExp(manifest.assets['linux-x64'].sha256));
+  assert.match(aur, new RegExp(manifest.assets['linux-arm64'].sha256));
+  assert.match(aur, /options=\('!strip' '!debug'\)/);
+  assert.doesNotMatch(aur, /\{\{/);
+
+  const alpine = await readFile(join(out, 'recipes/alpine/x86_64/APKBUILD'), 'utf8');
+  assert.match(alpine, /arch="x86_64"/);
+  assert.match(alpine, new RegExp(manifest.assets['linux-x64-musl'].sha256));
+  assert.doesNotMatch(alpine, /\{\{/);
+
+  const nix = await readFile(join(out, 'recipes/nix/default.nix'), 'utf8');
+  assert.match(nix, /x86_64-linux = \{/);
+  assert.match(nix, /sha256-/);
+  assert.doesNotMatch(nix, /\{\{/);
+
+  const scoop = JSON.parse(await readFile(join(out, 'recipes/scoop/marmotta.json'), 'utf8'));
+  assert.equal(scoop.version, version);
+  assert.equal(scoop.architecture['64bit'].hash, manifest.assets['windows-x64'].sha256);
+  assert.equal(scoop.architecture.arm64.hash, manifest.assets['windows-arm64'].sha256);
+
+  const wingetInstaller = await readFile(join(out, 'recipes/winget/napi-bindings.marmotta.installer.yaml'), 'utf8');
+  assert.match(wingetInstaller, /PackageVersion: "1\.2\.3"/);
+  assert.match(wingetInstaller, new RegExp(`InstallerSha256: ${manifest.assets['windows-x64'].sha256}`));
+  assert.doesNotMatch(wingetInstaller, /\{\{/);
+
+  const nfpm = await readFile(join(out, 'nfpm/nfpm-linux-amd64.yaml'), 'utf8');
+  assert.match(nfpm, /arch: amd64/);
+  assert.match(nfpm, new RegExp(`src: .*${assetName(version, { key: 'linux-x64', ext: '' })}`));
+  assert.doesNotMatch(nfpm, /\{\{/);
+
+  const manifestOnDisk = JSON.parse(await readFile(join(out, 'manifest.json'), 'utf8'));
+  assert.deepEqual(manifestOnDisk, manifest);
+
+  if (hasCommand('bash')) {
+    for (const recipe of ['aur/PKGBUILD', 'alpine/x86_64/APKBUILD', 'alpine/aarch64/APKBUILD']) {
+      const result = spawnSync('bash', ['-n', join(out, 'recipes', recipe)], { encoding: 'utf8' });
+      assert.equal(result.status, 0, `${recipe}: ${result.stderr}`);
+    }
+  }
+
+  if (hasCommand('ruby')) {
+    const result = spawnSync('ruby', ['-c', join(out, 'recipes/homebrew/marmotta.rb')], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  }
+
+  if (hasCommand('makepkg') && process.platform === 'linux') {
+    const result = spawnSync('makepkg', ['--printsrcinfo'], {
+      cwd: join(out, 'recipes/aur'),
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /pkgver = 1\.2\.3/);
+    assert.match(result.stdout, /source_aarch64 = .*marmotta-v1\.2\.3-linux-arm64/);
+  }
+});
+
+test('renderPackages rejects an incomplete SHA256SUMS file', async (t) => {
+  const { directory, artifacts, out, checksums } = await fixture();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  checksums.delete(assetName(version, { key: 'darwin-arm64', ext: '' }));
+  await assert.rejects(
+    renderPackages({ version, checksums, outDir: out, artifactsDir: artifacts }),
+    /Missing SHA-256 checksum.*marmotta-v1\.2\.3-darwin-arm64/,
+  );
+});
+
+test('buildPackages builds and verifies native packages with nfpm', async (t) => {
+  const nfpm = process.env.NFPM ?? 'nfpm';
+  if (!hasCommand(nfpm)) {
+    t.skip(`nfpm is not available (${nfpm})`);
+    return;
+  }
+  if (process.platform !== 'linux') {
+    t.skip('native package building is only tested on Linux');
+    return;
+  }
+
+  const { directory, artifacts, out, checksums } = await fixture();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  await renderPackages({ version, checksums, outDir: out, artifactsDir: artifacts });
+  const manifest = await buildPackages({ outDir: out, nfpm });
+
+  assert.equal(manifest.artifacts.length, 8);
+  for (const artifact of manifest.artifacts) {
+    assert.ok(artifact.bytes > 0, `${artifact.target} is empty`);
+    const path = join(out, artifact.path);
+    verifyPackage({ path, type: artifact.packager, version, arch: artifact.arch });
+  }
+
+  if (hasCommand('ar')) {
+    const deb = join(out, 'artifacts', `marmotta_${version}_amd64.deb`);
+    const debControl = spawnSync('ar', ['p', deb, 'control.tar.gz']).stdout;
+    const control = spawnSync('tar', ['-xzO'], { input: debControl, encoding: 'utf8' }).stdout;
+    assert.match(control, /Depends: libc6/);
+
+    const debData = spawnSync('ar', ['p', deb, 'data.tar.gz']).stdout;
+    const binary = spawnSync('tar', ['-xzO', './usr/bin/marmotta'], { input: debData, encoding: 'utf8' }).stdout;
+    assert.equal(binary, `#!/bin/sh\necho "marmotta ${version}"\n`);
+  }
+
+  const apkInfo = spawnSync('tar', ['-xzOf', join(out, 'artifacts', `marmotta-${version}-r0.x86_64.apk`), '.PKGINFO'], {
+    encoding: 'utf8',
+  }).stdout;
+  assert.match(apkInfo, /depend = libstdc\+\+/);
+
+  if (hasCommand('bsdtar')) {
+    const archInfo = spawnSync('bsdtar', ['-xOf', join(out, 'artifacts', `marmotta-${version}-1-x86_64.pkg.tar.zst`), '.PKGINFO'], {
+      encoding: 'utf8',
+    }).stdout;
+    assert.match(archInfo, /depend = glibc/);
+  }
+});

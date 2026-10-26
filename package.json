@@ -55,6 +55,8 @@
     "build:sea": "node scripts/build-sea.mjs",
     "build:bun": "node scripts/build-bun.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "packages": "node scripts/packages.mjs",
+    "packages:build": "node scripts/packages.mjs --build",
     "publish:all": "node scripts/publish.mjs"
   },
   "engines": {
