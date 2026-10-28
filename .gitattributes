@@ -1,3 +1,5 @@
 # The packaging recipes hash LICENSE and download it from raw.githubusercontent.com, which always
 # serves LF line endings. Keep the committed file LF so local hashes match CI even on Windows.
 LICENSE text eol=lf
+# Recipes are shell scripts and YAML consumed on Linux; a CRLF checkout would break them.
+packaging/templates/** text eol=lf

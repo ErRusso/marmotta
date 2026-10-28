@@ -140,14 +140,16 @@ export async function verifyArtifacts(directory, checksums, version) {
 
 async function renderTemplate(templateName, outputPath, context) {
   const templatePath = resolve(root, 'packaging/templates', templateName);
-  let source = await readFile(templatePath, 'utf8');
-  source = source.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, name) => {
+  // Always emit LF: the recipes are shell scripts and YAML that run on Linux, and a CRLF checkout
+  // on Windows must not leak into the published artifacts.
+  const source = (await readFile(templatePath, 'utf8')).replace(/\r\n/g, '\n');
+  const rendered = source.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, name) => {
     if (!(name in context)) throw new Error(`Unknown template variable ${match} in ${templateName}`);
     return String(context[name]);
   });
-  if (source.includes('{{')) throw new Error(`Unrendered template variable in ${templateName}`);
+  if (rendered.includes('{{')) throw new Error(`Unrendered template variable in ${templateName}`);
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, source);
+  await writeFile(outputPath, rendered);
 }
 
 export async function renderPackages({

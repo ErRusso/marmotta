@@ -127,6 +127,7 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   assert.match(alpine, new RegExp(manifest.assets['linux-arm64-musl'].sha256));
   assert.match(alpine, /case "\$CARCH" in/);
   assert.doesNotMatch(alpine, /\{\{/);
+  assert.doesNotMatch(alpine, /\r\n/);
 
   const rpm = await readFile(join(out, 'recipes/rpm/marmotta.spec'), 'utf8');
   assert.match(rpm, /^%global __strip \/bin\/true$/m);
@@ -158,6 +159,7 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   assert.match(nfpm, /dst: \/usr\/share\/licenses\/marmotta\/LICENSE\n    packager: apk/);
   assert.match(nfpm, /dst: \/usr\/share\/licenses\/marmotta\/LICENSE\n    packager: archlinux/);
   assert.doesNotMatch(nfpm, /\{\{/);
+  assert.doesNotMatch(nfpm, /\r\n/);
 
   // The license hash must be the LF version served by raw.githubusercontent.com.
   const license = await readFile(join(out, 'LICENSE'), 'utf8');
