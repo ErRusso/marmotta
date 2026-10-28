@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -12,7 +13,9 @@ import {
   checksumsFromArtifacts,
   hexToSri,
   parseChecksums,
+  readRpmMetadata,
   renderPackages,
+  verifyArtifacts,
   verifyPackage,
 } from '../scripts/packages.mjs';
 
@@ -36,7 +39,6 @@ async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'marmotta-packaging-'));
   const artifacts = join(directory, 'artifacts');
   const out = join(directory, 'out');
-  const { mkdir } = await import('node:fs/promises');
   await mkdir(artifacts, { recursive: true });
   const checksums = await writeFixtures(artifacts);
   return { directory, artifacts, out, checksums };
@@ -59,6 +61,30 @@ test('hexToSri converts a SHA-256 digest to the Nix SRI format', () => {
   assert.throws(() => hexToSri('not-a-hash'), /Invalid SHA-256 hash/);
 });
 
+test('renderPackages rejects pre-release versions that package managers rewrite', async (t) => {
+  const { directory, artifacts, out, checksums } = await fixture();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  await assert.rejects(
+    renderPackages({ version: '1.2.3-rc.1', checksums, outDir: out, artifactsDir: artifacts }),
+    /Invalid release version: 1\.2\.3-rc\.1.*plain MAJOR\.MINOR\.PATCH/,
+  );
+});
+
+test('verifyArtifacts rejects executables that do not match SHA256SUMS', async (t) => {
+  const { directory, artifacts, checksums } = await fixture();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  await verifyArtifacts(artifacts, checksums, version);
+
+  const stale = assetName(version, { key: 'linux-x64', ext: '' });
+  await writeFile(join(artifacts, stale), '#!/bin/sh\necho stale\n', { mode: 0o755 });
+  await assert.rejects(verifyArtifacts(artifacts, checksums, version), /SHA-256 mismatch/);
+
+  checksums.delete(stale);
+  await assert.rejects(verifyArtifacts(artifacts, checksums, version), /Missing SHA-256 checksum/);
+});
+
 test('renderPackages writes every recipe with checksums and no placeholders', async (t) => {
   const { directory, artifacts, out, checksums } = await fixture();
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -73,7 +99,7 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
 
   assert.equal(manifest.version, version);
   assert.equal(Object.keys(manifest.assets).length, ASSETS.length);
-  assert.equal(manifest.recipes.length, 11);
+  assert.equal(manifest.recipes.length, 10);
   assert.equal(manifest.packageConfigs.length, 8);
 
   const homebrew = await readFile(join(out, 'recipes/homebrew/marmotta.rb'), 'utf8');
@@ -92,14 +118,26 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   assert.match(aur, /options=\('!strip' '!debug'\)/);
   assert.doesNotMatch(aur, /\{\{/);
 
-  const alpine = await readFile(join(out, 'recipes/alpine/x86_64/APKBUILD'), 'utf8');
-  assert.match(alpine, /arch="x86_64"/);
+  const alpine = await readFile(join(out, 'recipes/alpine/APKBUILD'), 'utf8');
+  assert.match(alpine, /arch="x86_64 aarch64"/);
+  assert.match(alpine, /options="!strip"/);
+  assert.match(alpine, /source_x86_64=.*marmotta-v1\.2\.3-linux-x64-musl/);
+  assert.match(alpine, /source_aarch64=.*marmotta-v1\.2\.3-linux-arm64-musl/);
   assert.match(alpine, new RegExp(manifest.assets['linux-x64-musl'].sha256));
+  assert.match(alpine, new RegExp(manifest.assets['linux-arm64-musl'].sha256));
+  assert.match(alpine, /case "\$CARCH" in/);
   assert.doesNotMatch(alpine, /\{\{/);
+
+  const rpm = await readFile(join(out, 'recipes/rpm/marmotta.spec'), 'utf8');
+  assert.match(rpm, /^%global __strip \/bin\/true$/m);
+  assert.match(rpm, /^%global debug_package %\{nil\}$/m);
+  assert.doesNotMatch(rpm, /\{\{/);
 
   const nix = await readFile(join(out, 'recipes/nix/default.nix'), 'utf8');
   assert.match(nix, /x86_64-linux = \{/);
   assert.match(nix, /sha256-/);
+  assert.match(nix, /dontStrip = true;/);
+  assert.match(nix, /nativeBuildInputs = lib\.optionals stdenv\.isLinux \[ autoPatchelfHook \];/);
   assert.doesNotMatch(nix, /\{\{/);
 
   const scoop = JSON.parse(await readFile(join(out, 'recipes/scoop/marmotta.json'), 'utf8'));
@@ -115,13 +153,23 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   const nfpm = await readFile(join(out, 'nfpm/nfpm-linux-amd64.yaml'), 'utf8');
   assert.match(nfpm, /arch: amd64/);
   assert.match(nfpm, new RegExp(`src: .*${assetName(version, { key: 'linux-x64', ext: '' })}`));
+  assert.match(nfpm, /dst: \/usr\/share\/doc\/marmotta\/copyright\n    packager: deb/);
+  assert.match(nfpm, /dst: \/usr\/share\/licenses\/marmotta\/LICENSE\n    packager: rpm/);
+  assert.match(nfpm, /dst: \/usr\/share\/licenses\/marmotta\/LICENSE\n    packager: apk/);
+  assert.match(nfpm, /dst: \/usr\/share\/licenses\/marmotta\/LICENSE\n    packager: archlinux/);
   assert.doesNotMatch(nfpm, /\{\{/);
+
+  // The license hash must be the LF version served by raw.githubusercontent.com.
+  const license = await readFile(join(out, 'LICENSE'), 'utf8');
+  assert.doesNotMatch(license, /\r\n/);
+  const expectedLicenseHash = createHash('sha256').update(license).digest('hex');
+  assert.match(alpine, new RegExp(expectedLicenseHash));
 
   const manifestOnDisk = JSON.parse(await readFile(join(out, 'manifest.json'), 'utf8'));
   assert.deepEqual(manifestOnDisk, manifest);
 
   if (hasCommand('bash')) {
-    for (const recipe of ['aur/PKGBUILD', 'alpine/x86_64/APKBUILD', 'alpine/aarch64/APKBUILD']) {
+    for (const recipe of ['aur/PKGBUILD', 'alpine/APKBUILD']) {
       const result = spawnSync('bash', ['-n', join(out, 'recipes', recipe)], { encoding: 'utf8' });
       assert.equal(result.status, 0, `${recipe}: ${result.stderr}`);
     }
@@ -195,9 +243,18 @@ test('buildPackages builds and verifies native packages with nfpm', async (t) =>
   assert.match(apkInfo, /depend = libstdc\+\+/);
 
   if (hasCommand('bsdtar')) {
-    const archInfo = spawnSync('bsdtar', ['-xOf', join(out, 'artifacts', `marmotta-${version}-1-x86_64.pkg.tar.zst`), '.PKGINFO'], {
-      encoding: 'utf8',
-    }).stdout;
+    const archPackage = join(out, 'artifacts', `marmotta-${version}-1-x86_64.pkg.tar.zst`);
+    const archInfo = spawnSync('bsdtar', ['-xOf', archPackage, '.PKGINFO'], { encoding: 'utf8' }).stdout;
     assert.match(archInfo, /depend = glibc/);
+    assert.match(spawnSync('bsdtar', ['-tf', archPackage], { encoding: 'utf8' }).stdout, /usr\/share\/licenses\/marmotta\/LICENSE/);
+  }
+
+  const rpmPackage = join(out, 'artifacts', `marmotta-${version}-1.x86_64.rpm`);
+  const rpmMetadata = readRpmMetadata(await readFile(rpmPackage));
+  assert.deepEqual(rpmMetadata, { name: 'marmotta', version, release: '1', arch: 'x86_64' });
+  assert.throws(() => readRpmMetadata(Buffer.alloc(64)), /Truncated RPM header/);
+
+  if (hasCommand('bsdtar')) {
+    assert.match(spawnSync('bsdtar', ['-tf', rpmPackage], { encoding: 'utf8' }).stdout, /usr\/share\/licenses\/marmotta\/LICENSE/);
   }
 });

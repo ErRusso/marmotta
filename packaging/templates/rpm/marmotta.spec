@@ -1,4 +1,7 @@
 %global debug_package %{nil}
+# The executable is a Bun single-file binary with an appended payload, so brp-strip must not touch
+# it. Overriding __strip makes the strip BRP script a no-op without disabling every other BRP pass.
+%global __strip /bin/true
 
 %ifarch x86_64
 %global asset {{ASSET_LINUX_X64}}

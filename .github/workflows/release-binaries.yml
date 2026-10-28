@@ -149,6 +149,8 @@ jobs:
       # movable tags: a moved tag could otherwise publish malicious binaries with valid attestations.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -165,16 +167,53 @@ jobs:
         working-directory: dist
         run: sha256sum marmotta-* > SHA256SUMS
 
-      - name: Install nfpm and package verification tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rpm zstd
-          version=2.43.0
-          archive="nfpm_${version}_Linux_x86_64.tar.gz"
-          curl -fsSLo "/tmp/$archive" "https://github.com/goreleaser/nfpm/releases/download/v${version}/$archive"
-          echo "a80d5f724ed70b192ffa8a2bde469c013cef559c8afa3441eb51dd9a918beb6b  /tmp/$archive" | sha256sum -c -
-          sudo tar -xzf "/tmp/$archive" -C /usr/local/bin nfpm
-          nfpm --version
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: dist/*
+
+      - name: Attach to the release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true
+
+  # Packaging runs after the binaries are published so that an nfpm download or package build
+  # failure cannot block the release itself; the packages are attached to the same release.
+  packaging:
+    name: Build and publish packages
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The packaging scripts run in a contents: write job; nothing here needs git auth, so do
+          # not leave GITHUB_TOKEN in .git/config.
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Set up packaging tools
+        uses: ./.github/actions/setup-packaging
+
+      - name: Verify the tag matches package.json
+        shell: bash
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --dir dist
 
       - name: Test package generation
         env:
@@ -196,11 +235,6 @@ jobs:
           cp packages/manifest.json packages/recipes/manifest.json
           tar -czf "packages/marmotta-v${version}-packaging.tar.gz" -C packages/recipes .
 
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
-        with:
-          subject-path: dist/*
-
       - name: Attest package provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
@@ -208,11 +242,11 @@ jobs:
             packages/artifacts/*
             packages/marmotta-v*-packaging.tar.gz
 
-      - name: Attach to the release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          files: |
-            dist/*
-            packages/artifacts/*
-            packages/marmotta-v*-packaging.tar.gz
-          generate_release_notes: true
+      - name: Attach packages to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release upload "$GITHUB_REF_NAME"
+          packages/artifacts/*
+          packages/marmotta-v*-packaging.tar.gz
+          --clobber

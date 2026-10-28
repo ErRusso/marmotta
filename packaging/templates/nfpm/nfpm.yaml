@@ -29,7 +29,24 @@ contents:
     dst: /usr/bin/marmotta
     file_info:
       mode: 0755
+  # Every packager expects the license in its own location.
   - src: {{LICENSE_FILE}}
     dst: /usr/share/doc/marmotta/copyright
+    packager: deb
+    file_info:
+      mode: 0644
+  - src: {{LICENSE_FILE}}
+    dst: /usr/share/licenses/marmotta/LICENSE
+    packager: rpm
+    file_info:
+      mode: 0644
+  - src: {{LICENSE_FILE}}
+    dst: /usr/share/licenses/marmotta/LICENSE
+    packager: apk
+    file_info:
+      mode: 0644
+  - src: {{LICENSE_FILE}}
+    dst: /usr/share/licenses/marmotta/LICENSE
+    packager: archlinux
     file_info:
       mode: 0644

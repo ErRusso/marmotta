@@ -1,0 +1,33 @@
+name: Set up packaging tools
+description: Install the pinned nfpm release and the tools used to inspect the native packages.
+
+inputs:
+  nfpm-version:
+    description: nfpm version to install
+    required: false
+    default: "2.43.0"
+  nfpm-checksum:
+    description: SHA-256 checksum of the nfpm release archive
+    required: false
+    default: a80d5f724ed70b192ffa8a2bde469c013cef559c8afa3441eb51dd9a918beb6b
+
+runs:
+  using: composite
+  steps:
+    - name: Install package verification tools
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends rpm zstd
+
+    - name: Install nfpm
+      shell: bash
+      env:
+        NFPM_VERSION: ${{ inputs.nfpm-version }}
+        NFPM_CHECKSUM: ${{ inputs.nfpm-checksum }}
+      run: |
+        archive="nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+        curl -fsSLo "/tmp/$archive" "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/$archive"
+        echo "${NFPM_CHECKSUM}  /tmp/${archive}" | sha256sum -c -
+        sudo tar -xzf "/tmp/$archive" -C /usr/local/bin nfpm
+        nfpm --version

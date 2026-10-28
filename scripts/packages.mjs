@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { access, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { createReadStream, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -40,11 +40,12 @@ export const ASSETS = [
 
 // nfpm builds all of the native Linux packages from these configs. Alpine uses the musl
 // executables; Debian, RPM, and Arch use the glibc executables.
+const assetsByKey = new Map(ASSETS.map((asset) => [asset.key, asset]));
 const NFPM_CONFIGS = [
-  { id: 'linux-amd64', asset: 'linux-x64', arch: 'amd64' },
-  { id: 'linux-arm64', asset: 'linux-arm64', arch: 'arm64' },
-  { id: 'linux-amd64-musl', asset: 'linux-x64-musl', arch: 'amd64' },
-  { id: 'linux-arm64-musl', asset: 'linux-arm64-musl', arch: 'arm64' },
+  { id: 'linux-amd64', asset: assetsByKey.get('linux-x64'), arch: 'amd64' },
+  { id: 'linux-arm64', asset: assetsByKey.get('linux-arm64'), arch: 'arm64' },
+  { id: 'linux-amd64-musl', asset: assetsByKey.get('linux-x64-musl'), arch: 'amd64' },
+  { id: 'linux-arm64-musl', asset: assetsByKey.get('linux-arm64-musl'), arch: 'arm64' },
 ];
 
 // Package targets produced by `--build`. `arch` is the package-manager architecture name.
@@ -59,15 +60,11 @@ const PACKAGE_TARGETS = [
   { packager: 'apk', config: 'linux-arm64-musl', arch: 'aarch64', target: (version) => `marmotta-${version}-r0.aarch64.apk` },
 ];
 
-const ALPINE_CONFIGS = [
-  { arch: 'x86_64', asset: 'linux-x64-musl' },
-  { arch: 'aarch64', asset: 'linux-arm64-musl' },
-];
-
 const RECIPES = [
   ['homebrew/marmotta.rb', 'homebrew/marmotta.rb'],
   ['aur/PKGBUILD', 'aur/PKGBUILD'],
   ['rpm/marmotta.spec', 'rpm/marmotta.spec'],
+  ['alpine/APKBUILD', 'alpine/APKBUILD'],
   ['nix/default.nix', 'nix/default.nix'],
   ['scoop/marmotta.json', 'scoop/marmotta.json'],
   ['winget/version.yaml', 'winget/napi-bindings.marmotta.yaml'],
@@ -84,8 +81,10 @@ function assetKey(asset) {
 }
 
 function validateVersion(version) {
-  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
-    throw new Error(`Invalid release version: ${version}`);
+  // nfpm rewrites versions with pre-release or build metadata (`~` for deb/rpm, `_` for apk), and
+  // the generated RPM spec and APKBUILD would be invalid, so only plain releases are supported.
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error(`Invalid release version: ${version} (expected a plain MAJOR.MINOR.PATCH version)`);
   }
 }
 
@@ -122,6 +121,21 @@ export async function checksumsFromArtifacts(directory, version) {
     checksums.set(name, await sha256File(resolve(directory, name)));
   }
   return checksums;
+}
+
+// Confirms that the executables on disk are the ones the recipes point at. Without this, a stale
+// dist/ directory would produce packages whose binaries do not match the published SHA256SUMS.
+export async function verifyArtifacts(directory, checksums, version) {
+  validateVersion(version);
+  for (const asset of ASSETS) {
+    const name = assetName(version, asset);
+    const expected = checksums.get(name);
+    if (!expected) throw new Error(`Missing SHA-256 checksum for ${name}`);
+    const actual = await sha256File(resolve(directory, name));
+    if (actual !== expected) {
+      throw new Error(`${name}: SHA-256 mismatch (SHA256SUMS has ${expected}, file has ${actual})`);
+    }
+  }
 }
 
 async function renderTemplate(templateName, outputPath, context) {
@@ -172,11 +186,13 @@ export async function renderPackages({
     throw new Error(`Missing SHA-256 checksum${missing.length === 1 ? '' : 's'} for: ${missing.join(', ')}`);
   }
 
-  const license = await readFile(resolve(root, 'LICENSE'));
+  const license = (await readFile(resolve(root, 'LICENSE'), 'utf8')).replace(/\r\n/g, '\n');
   context.SHA256_LICENSE = createHash('sha256').update(license).digest('hex');
 
   await mkdir(resolve(outDir, 'recipes'), { recursive: true });
-  await copyFile(resolve(root, 'LICENSE'), resolve(outDir, 'LICENSE'));
+  // Write the normalized license so the hash above matches the file users download from
+  // raw.githubusercontent (which always serves LF line endings), even on a CRLF checkout.
+  await writeFile(resolve(outDir, 'LICENSE'), license);
   await copyFile(resolve(root, 'packaging/README.md'), resolve(outDir, 'recipes/README.md'));
 
   const recipes = ['README.md'];
@@ -185,20 +201,9 @@ export async function renderPackages({
     recipes.push(output);
   }
 
-  for (const config of ALPINE_CONFIGS) {
-    const key = config.asset.toUpperCase().replaceAll('-', '_');
-    await renderTemplate('alpine/APKBUILD', resolve(outDir, 'recipes/alpine', config.arch, 'APKBUILD'), {
-      ...context,
-      ALPINE_ARCH: config.arch,
-      ALPINE_PLATFORM: config.asset,
-      ALPINE_SHA256: context[`SHA256_${key}`],
-    });
-    recipes.push(`alpine/${config.arch}/APKBUILD`);
-  }
-
   const packageConfigs = [];
   for (const config of NFPM_CONFIGS) {
-    const key = config.asset.toUpperCase().replaceAll('-', '_');
+    const key = assetKey(config.asset);
     const output = `nfpm/nfpm-${config.id}.yaml`;
     await renderTemplate('nfpm/nfpm.yaml', resolve(outDir, output), {
       ...context,
@@ -263,10 +268,73 @@ function tarArgs(member, listOnly) {
   throw new Error(`Unsupported archive member: ${member}`);
 }
 
-function checkContains(haystack, needle, description) {
-  if (!haystack.includes(needle)) {
-    throw new Error(`${description}: expected to find ${JSON.stringify(needle)}`);
+function checkLine(haystack, expected, description) {
+  const lines = haystack.split(/\r?\n/).map((line) => line.trim());
+  if (!lines.includes(expected)) {
+    throw new Error(`${description}: expected a line ${JSON.stringify(expected)}`);
   }
+}
+
+function checkLineMatches(haystack, pattern, description) {
+  const lines = haystack.split(/\r?\n/).map((line) => line.trim());
+  if (!lines.some((line) => pattern.test(line))) {
+    throw new Error(`${description}: expected a line matching ${pattern}`);
+  }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const RPM_HEADER_MAGIC = 0x8eade801;
+const RPM_TYPE_STRING = 6;
+const RPM_TAGS = { name: 1000, version: 1001, release: 1002, arch: 1022 };
+
+// Reads one RPM header (magic, index, data store). Only the string tags used for verification are
+// decoded; the header is skipped for the rest. This avoids depending on the rpm binary.
+function readRpmHeader(buffer, offset) {
+  if (offset + 16 > buffer.length) throw new Error('Truncated RPM header');
+  if (buffer.readUInt32BE(offset) !== RPM_HEADER_MAGIC) {
+    throw new Error(`Invalid RPM header at offset ${offset}`);
+  }
+  const indexCount = buffer.readUInt32BE(offset + 8);
+  const dataSize = buffer.readUInt32BE(offset + 12);
+  const indexOffset = offset + 16;
+  const dataOffset = indexOffset + indexCount * 16;
+  const end = dataOffset + dataSize;
+  if (end > buffer.length) throw new Error('Truncated RPM header data');
+
+  const strings = new Map();
+  const tags = new Set(Object.values(RPM_TAGS));
+  for (let index = 0; index < indexCount; index += 1) {
+    const entry = indexOffset + index * 16;
+    const tag = buffer.readUInt32BE(entry);
+    const type = buffer.readUInt32BE(entry + 4);
+    const valueOffset = buffer.readUInt32BE(entry + 8);
+    if (type !== RPM_TYPE_STRING || !tags.has(tag)) continue;
+    const start = dataOffset + valueOffset;
+    const stop = buffer.indexOf(0, start);
+    strings.set(tag, buffer.toString('utf8', start, stop === -1 ? end : stop));
+  }
+  return { strings, next: Math.ceil(end / 8) * 8 };
+}
+
+export function readRpmMetadata(buffer) {
+  // Layout: 96-byte lead, signature header, main header. Both headers are padded to 8 bytes.
+  const signature = readRpmHeader(buffer, 96);
+  const main = readRpmHeader(buffer, signature.next);
+  return {
+    name: main.strings.get(RPM_TAGS.name),
+    version: main.strings.get(RPM_TAGS.version),
+    release: main.strings.get(RPM_TAGS.release),
+    arch: main.strings.get(RPM_TAGS.arch),
+  };
+}
+
+function rpmListing(path) {
+  if (commandExists('rpm')) return capture('rpm', ['-qpl', path]);
+  if (commandExists('bsdtar')) return capture('bsdtar', ['-tf', path]);
+  throw new Error('rpm or bsdtar is required to list RPM contents');
 }
 
 // Verifies the structure of an nfpm-built package without installing it. This is intentionally
@@ -275,6 +343,7 @@ export function verifyPackage({ path, type, version, arch }) {
   if (!commandExists('tar')) throw new Error('tar is required to verify packages');
 
   if (type === 'deb') {
+    if (!commandExists('ar')) throw new Error('ar is required to verify Debian packages');
     const members = capture('ar', ['t', path]).split('\n').map((line) => line.trim()).filter(Boolean);
     const controlMember = members.find((member) => /^control\.tar\.(gz|xz|zst)$/.test(member));
     const dataMember = members.find((member) => /^data\.tar\.(gz|xz|zst)$/.test(member));
@@ -283,53 +352,55 @@ export function verifyPackage({ path, type, version, arch }) {
     const control = captureBuffer('tar', tarArgs(controlMember, false), {
       input: captureBuffer('ar', ['p', path, controlMember]),
     }).toString('utf8');
-    checkContains(control, 'Package: marmotta', path);
-    checkContains(control, `Version: ${version}`, path);
-    checkContains(control, `Architecture: ${arch}`, path);
+    checkLine(control, 'Package: marmotta', path);
+    checkLine(control, `Version: ${version}`, path);
+    checkLine(control, `Architecture: ${arch}`, path);
 
     const data = captureBuffer('tar', tarArgs(dataMember, true), {
       input: captureBuffer('ar', ['p', path, dataMember]),
     }).toString('utf8');
-    checkContains(data, './usr/bin/marmotta', path);
-    checkContains(data, './usr/share/doc/marmotta/copyright', path);
+    checkLine(data, './usr/bin/marmotta', path);
+    checkLine(data, './usr/share/doc/marmotta/copyright', path);
     return;
   }
 
   if (type === 'rpm') {
-    const listing = commandExists('rpm')
-      ? capture('rpm', ['-qpl', path])
-      : commandExists('bsdtar')
-        ? capture('bsdtar', ['-tf', path])
-        : undefined;
-    if (listing) checkContains(listing, '/usr/bin/marmotta', path);
+    const metadata = readRpmMetadata(readFileSync(path));
+    for (const [field, expected] of [['name', 'marmotta'], ['version', version], ['arch', arch]]) {
+      if (metadata[field] !== expected) {
+        throw new Error(`${path}: expected RPM ${field} ${JSON.stringify(expected)}, got ${JSON.stringify(metadata[field])}`);
+      }
+    }
+    const listing = rpmListing(path);
+    checkLine(listing, '/usr/bin/marmotta', path);
+    checkLine(listing, '/usr/share/licenses/marmotta/LICENSE', path);
     return;
   }
 
   if (type === 'apk') {
     const listing = capture('tar', ['-tzf', path]);
-    checkContains(listing, 'usr/bin/marmotta', path);
+    checkLine(listing, 'usr/bin/marmotta', path);
+    checkLine(listing, 'usr/share/licenses/marmotta/LICENSE', path);
     const info = capture('tar', ['-xzOf', path, '.PKGINFO']);
-    checkContains(info, 'pkgname = marmotta', path);
-    checkContains(info, `pkgver = ${version}`, path);
-    checkContains(info, `arch = ${arch}`, path);
+    checkLine(info, 'pkgname = marmotta', path);
+    checkLine(info, `pkgver = ${version}`, path);
+    checkLine(info, `arch = ${arch}`, path);
     return;
   }
 
   if (type === 'archlinux') {
-    if (commandExists('bsdtar')) {
-      checkContains(capture('bsdtar', ['-tf', path]), 'usr/bin/marmotta', path);
-      const info = capture('bsdtar', ['-xOf', path, '.PKGINFO']);
-      checkContains(info, 'pkgname = marmotta', path);
-      checkContains(info, `pkgver = ${version}`, path);
-      checkContains(info, `arch = ${arch}`, path);
-      return;
-    }
-    if (commandExists('tar')) {
-      checkContains(capture('tar', ['--zstd', '-tf', path]), 'usr/bin/marmotta', path);
-      checkContains(capture('tar', ['--zstd', '-xOf', path, '.PKGINFO']), 'pkgname = marmotta', path);
-      return;
-    }
-    throw new Error('bsdtar or tar with zstd support is required to verify Arch Linux packages');
+    const [tool, listArgs, infoArgs] = commandExists('bsdtar')
+      ? ['bsdtar', ['-tf', path], ['-xOf', path, '.PKGINFO']]
+      : ['tar', ['--zstd', '-tf', path], ['--zstd', '-xOf', path, '.PKGINFO']];
+    const listing = capture(tool, listArgs);
+    checkLine(listing, 'usr/bin/marmotta', path);
+    checkLine(listing, 'usr/share/licenses/marmotta/LICENSE', path);
+    const info = capture(tool, infoArgs);
+    checkLine(info, 'pkgname = marmotta', path);
+    // nfpm records the package release in pkgver for Arch Linux (`1.2.3-1`).
+    checkLineMatches(info, new RegExp(`^pkgver = ${escapeRegExp(version)}(?:-\\d+)?$`), path);
+    checkLine(info, `arch = ${arch}`, path);
+    return;
   }
 
   throw new Error(`Unknown package type: ${type}`);
@@ -406,6 +477,12 @@ async function main() {
   const checksums = options.sums
     ? parseChecksums(await readFile(resolve(options.sums), 'utf8'))
     : await checksumsFromArtifacts(artifactsDir, version);
+
+  // When the recipes come from a published SHA256SUMS and we are about to build packages, make
+  // sure the executables in --artifacts are the exact files those checksums describe.
+  if (options.build && options.sums) {
+    await verifyArtifacts(artifactsDir, checksums, version);
+  }
 
   const manifest = await renderPackages({ version, checksums, outDir, artifactsDir });
   console.log(`Rendered ${manifest.recipes.length} recipes and ${manifest.packageConfigs.length} package configs in ${outDir}`);

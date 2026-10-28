@@ -1,0 +1,3 @@
+# The packaging recipes hash LICENSE and download it from raw.githubusercontent.com, which always
+# serves LF line endings. Keep the committed file LF so local hashes match CI even on Windows.
+LICENSE text eol=lf

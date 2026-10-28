@@ -2,6 +2,7 @@
   lib,
   stdenv,
   fetchurl,
+  autoPatchelfHook,
 }:
 
 let
@@ -38,6 +39,12 @@ stdenv.mkDerivation {
 
   dontUnpack = true;
   dontBuild = true;
+
+  # The executable is a Bun single-file binary with an appended payload. Stripping it can corrupt
+  # that payload, and on NixOS autoPatchelfHook has to rewrite the ELF interpreter before it runs.
+  # The binary only needs glibc, which stdenv already provides.
+  dontStrip = true;
+  nativeBuildInputs = lib.optionals stdenv.isLinux [ autoPatchelfHook ];
 
   installPhase = ''
     runHook preInstall
