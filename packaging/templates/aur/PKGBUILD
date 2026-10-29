@@ -6,11 +6,13 @@ pkgdesc='{{DESCRIPTION}}'
 arch=('x86_64' 'aarch64')
 url='{{REPOSITORY}}'
 license=('Apache-2.0')
-depends=('glibc' 'gcc-libs')
+depends=('glibc')
 provides=('marmotta')
 conflicts=('marmotta')
 options=('!strip' '!debug')
 
+# The asset names are built from ${pkgver} here instead of rendered asset variables so that a
+# version bump only has to change pkgver; keep them in sync with the release asset naming.
 source_x86_64=(
   "{{REPOSITORY}}/releases/download/v${pkgver}/marmotta-v${pkgver}-linux-x64"
   "LICENSE::{{LICENSE_URL}}"

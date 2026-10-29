@@ -9,22 +9,29 @@ license="Apache-2.0"
 depends="libstdc++ libgcc"
 # The executable is a Bun single-file binary with an appended payload; abuild strips by default.
 options="!strip"
-source_x86_64="{{REPOSITORY}}/releases/download/v$pkgver/{{ASSET_LINUX_X64_MUSL}}
+
+# abuild has no per-architecture source_$CARCH variables, so select the asset and its checksums here.
+case "$CARCH" in
+x86_64)
+	_asset="{{ASSET_LINUX_X64_MUSL}}"
+	source="{{REPOSITORY}}/releases/download/v$pkgver/$_asset
 	LICENSE::{{LICENSE_URL}}"
-sha256sums_x86_64="{{SHA256_LINUX_X64_MUSL}}
-	{{SHA256_LICENSE}}"
-source_aarch64="{{REPOSITORY}}/releases/download/v$pkgver/{{ASSET_LINUX_ARM64_MUSL}}
+	sha512sums="{{SHA512_LINUX_X64_MUSL}}  {{ASSET_LINUX_X64_MUSL}}
+	{{SHA512_LICENSE}}  LICENSE"
+	;;
+aarch64)
+	_asset="{{ASSET_LINUX_ARM64_MUSL}}"
+	source="{{REPOSITORY}}/releases/download/v$pkgver/$_asset
 	LICENSE::{{LICENSE_URL}}"
-sha256sums_aarch64="{{SHA256_LINUX_ARM64_MUSL}}
-	{{SHA256_LICENSE}}"
+	sha512sums="{{SHA512_LINUX_ARM64_MUSL}}  {{ASSET_LINUX_ARM64_MUSL}}
+	{{SHA512_LICENSE}}  LICENSE"
+	;;
+*)
+	error "unsupported architecture: $CARCH"
+	;;
+esac
 
 package() {
-	case "$CARCH" in
-	x86_64) _asset="{{ASSET_LINUX_X64_MUSL}}" ;;
-	aarch64) _asset="{{ASSET_LINUX_ARM64_MUSL}}" ;;
-	*) error "unsupported architecture: $CARCH" ;;
-	esac
-
 	install -Dm755 "$srcdir/$_asset" "$pkgdir/usr/bin/marmotta"
 	install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

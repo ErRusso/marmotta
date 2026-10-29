@@ -68,3 +68,66 @@ jobs:
         env:
           NFPM: /usr/local/bin/nfpm
         run: node --test test/packaging.test.js
+
+  recipe-lint:
+    name: Lint package recipes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Render fixture recipes
+        run: node scripts/render-fixtures.mjs lint
+
+      # Run each rendered recipe through the tool that consumes it. The packaging tests only prove
+      # that placeholders get filled in; these catch recipe-level mistakes such as invalid checksum
+      # syntax that abuild or makepkg would reject.
+      - name: Lint Homebrew formula
+        run: docker run --rm -v "$PWD/lint/recipes/homebrew:/work:ro" -w /work ruby:3 ruby -c marmotta.rb
+
+      - name: Lint Alpine APKBUILD
+        # abuild refuses to run as root without -F, and the container only ever runs validate here.
+        run: |
+          docker run --rm \
+            -v "$PWD/lint/recipes/alpine:/work:ro" \
+            -w /work \
+            alpine:3.22 \
+            sh -c 'apk add --no-cache abuild >/dev/null && abuild -F validate'
+
+      - name: Lint AUR PKGBUILD
+        # makepkg refuses to run as root, so parse the recipe as an unprivileged user.
+        run: |
+          docker run --rm \
+            -v "$PWD/lint/recipes/aur:/src:ro" \
+            archlinux:latest \
+            bash -euc '
+              useradd -m builder
+              cp -a /src /home/builder/aur
+              chown -R builder:builder /home/builder/aur
+              runuser -u builder -- bash -lc "cd /home/builder/aur && makepkg --printsrcinfo" >/dev/null
+            '
+
+      - name: Lint RPM spec
+        run: |
+          docker run --rm \
+            -v "$PWD/lint/recipes/rpm:/work:ro" \
+            -w /work \
+            fedora:latest \
+            bash -euc 'dnf install -y --quiet rpm-build >/dev/null && rpmspec -P marmotta.spec >/dev/null'
+
+      - name: Lint Nix expression
+        run: |
+          docker run --rm \
+            -v "$PWD/lint/recipes/nix:/work:ro" \
+            -w /work \
+            nixos/nix:latest \
+            nix-instantiate --parse default.nix >/dev/null
+
+      - name: Lint Scoop manifest
+        shell: pwsh
+        run: Get-Content lint/recipes/scoop/marmotta.json -Raw | ConvertFrom-Json | Out-Null

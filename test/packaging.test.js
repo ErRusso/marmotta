@@ -35,6 +35,10 @@ async function writeFixtures(directory) {
   return checksumsFromArtifacts(directory, version);
 }
 
+async function sha512(path) {
+  return createHash('sha512').update(await readFile(path)).digest('hex');
+}
+
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'marmotta-packaging-'));
   const artifacts = join(directory, 'artifacts');
@@ -115,19 +119,23 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   assert.match(aur, /source_aarch64=/);
   assert.match(aur, new RegExp(manifest.assets['linux-x64'].sha256));
   assert.match(aur, new RegExp(manifest.assets['linux-arm64'].sha256));
+  assert.match(aur, /depends=\('glibc'\)/);
+  assert.doesNotMatch(aur, /gcc-libs/);
   assert.match(aur, /options=\('!strip' '!debug'\)/);
   assert.doesNotMatch(aur, /\{\{/);
 
   const alpine = await readFile(join(out, 'recipes/alpine/APKBUILD'), 'utf8');
   assert.match(alpine, /arch="x86_64 aarch64"/);
   assert.match(alpine, /options="!strip"/);
-  assert.match(alpine, /source_x86_64=.*marmotta-v1\.2\.3-linux-x64-musl/);
-  assert.match(alpine, /source_aarch64=.*marmotta-v1\.2\.3-linux-arm64-musl/);
-  assert.match(alpine, new RegExp(manifest.assets['linux-x64-musl'].sha256));
-  assert.match(alpine, new RegExp(manifest.assets['linux-arm64-musl'].sha256));
   assert.match(alpine, /case "\$CARCH" in/);
+  assert.doesNotMatch(alpine, /source_x86_64|sha256sums/);
   assert.doesNotMatch(alpine, /\{\{/);
   assert.doesNotMatch(alpine, /\r\n/);
+
+  const muslX64 = await sha512(join(artifacts, assetName(version, { key: 'linux-x64-musl', ext: '' })));
+  const muslArm64 = await sha512(join(artifacts, assetName(version, { key: 'linux-arm64-musl', ext: '' })));
+  assert.match(alpine, new RegExp(`${muslX64}  marmotta-v1\\.2\\.3-linux-x64-musl`));
+  assert.match(alpine, new RegExp(`${muslArm64}  marmotta-v1\\.2\\.3-linux-arm64-musl`));
 
   const rpm = await readFile(join(out, 'recipes/rpm/marmotta.spec'), 'utf8');
   assert.match(rpm, /^%global __strip \/bin\/true$/m);
@@ -145,6 +153,9 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   assert.equal(scoop.version, version);
   assert.equal(scoop.architecture['64bit'].hash, manifest.assets['windows-x64'].sha256);
   assert.equal(scoop.architecture.arm64.hash, manifest.assets['windows-arm64'].sha256);
+  assert.equal(scoop.architecture['64bit'].bin, 'marmotta.exe');
+  assert.match(scoop.architecture['64bit'].url, /#\/marmotta\.exe$/);
+  assert.match(scoop.autoupdate.architecture.arm64.url, /#\/marmotta\.exe$/);
 
   const wingetInstaller = await readFile(join(out, 'recipes/winget/napi-bindings.marmotta.installer.yaml'), 'utf8');
   assert.match(wingetInstaller, /PackageVersion: "1\.2\.3"/);
@@ -164,8 +175,10 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   // The license hash must be the LF version served by raw.githubusercontent.com.
   const license = await readFile(join(out, 'LICENSE'), 'utf8');
   assert.doesNotMatch(license, /\r\n/);
-  const expectedLicenseHash = createHash('sha256').update(license).digest('hex');
-  assert.match(alpine, new RegExp(expectedLicenseHash));
+  const expectedLicenseSha256 = createHash('sha256').update(license).digest('hex');
+  const expectedLicenseSha512 = createHash('sha512').update(license).digest('hex');
+  assert.match(aur, new RegExp(`${expectedLicenseSha256}`));
+  assert.match(alpine, new RegExp(`${expectedLicenseSha512}  LICENSE`));
 
   const manifestOnDisk = JSON.parse(await readFile(join(out, 'manifest.json'), 'utf8'));
   assert.deepEqual(manifestOnDisk, manifest);
@@ -174,6 +187,23 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
     for (const recipe of ['aur/PKGBUILD', 'alpine/APKBUILD']) {
       const result = spawnSync('bash', ['-n', join(out, 'recipes', recipe)], { encoding: 'utf8' });
       assert.equal(result.status, 0, `${recipe}: ${result.stderr}`);
+    }
+  }
+
+  if (hasCommand('sh')) {
+    // abuild sources the APKBUILD and has no source_$CARCH support, so each arch must set source.
+    for (const [arch, asset] of [
+      ['x86_64', 'linux-x64-musl'],
+      ['aarch64', 'linux-arm64-musl'],
+    ]) {
+      const result = spawnSync('sh', ['-c', '. ./APKBUILD && printf "%s\\n%s\\n" "$source" "$sha512sums"'], {
+        cwd: join(out, 'recipes/alpine'),
+        encoding: 'utf8',
+        env: { ...process.env, CARCH: arch },
+      });
+      assert.equal(result.status, 0, `${arch}: ${result.stderr}`);
+      assert.match(result.stdout, new RegExp(`marmotta-v1\\.2\\.3-${asset}`));
+      assert.match(result.stdout, /[0-9a-f]{128}  marmotta-v1\.2\.3-linux-/);
     }
   }
 

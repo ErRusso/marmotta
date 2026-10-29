@@ -57,22 +57,35 @@ disagree with the published checksums.
 Only plain `MAJOR.MINOR.PATCH` versions are supported: nfpm rewrites pre-release and build
 metadata differently per package format, which would make the generated spec and APKBUILD invalid.
 
+The recipes reference `LICENSE` at tag `v<version>`. When that tag exists locally, the renderer
+hashes the committed blob from the tag (`git show v<version>:LICENSE`); otherwise it uses the
+working tree, so render an older version from a checkout of that tag. The Alpine recipe also needs
+the release executables in `--artifacts` to compute the SHA-512 checksums that aports requires.
+
+The `.apk` packages built by nfpm are unsigned. Add `--allow-untrusted` when installing them
+directly, or sign them for a repository.
+
 The release workflow installs a pinned nfpm version through
 `.github/actions/setup-packaging`, runs `node --test test/packaging.test.js` with that nfpm, and
 attaches the results to the GitHub release together with `SHA256SUMS.packages` and
 `marmotta-vX.Y.Z-packaging.tar.gz` (the rendered recipes and their manifest). Packaging runs in a
 separate job after the binary release, so a packaging failure never blocks the executables.
 
+A second CI job renders the recipes from fixture checksums and runs each one through its consumer:
+`ruby -c` for the formula, `abuild validate` for the APKBUILD, `makepkg --printsrcinfo` for the
+PKGBUILD, `rpmspec -P` for the spec, and `nix-instantiate --parse` for the Nix expression. This
+catches recipe syntax that filling in the placeholders alone would not.
+
 ## Package-manager notes
 
 | Manager | Recipe | Runtime notes |
 | --- | --- | --- |
 | Homebrew | `homebrew/marmotta.rb` | Installs the standalone binary from the release; no Node.js or npm required. macOS binaries are ad-hoc signed and not notarized. |
-| AUR | `aur/PKGBUILD` | `marmotta-bin`, `x86_64` and `aarch64`, glibc binaries. Depends on `glibc` and `gcc-libs`. |
+| AUR | `aur/PKGBUILD` | `marmotta-bin`, `x86_64` and `aarch64`, glibc binaries. Depends on `glibc`. |
 | Arch Linux | built by nfpm | Same binary and dependencies as the AUR package. |
 | Debian/Ubuntu | built by nfpm | Depends on `libc6`; the binary is the glibc build. |
 | Fedora/RHEL | built by nfpm | Depends on `glibc`; `rpm/marmotta.spec` is provided for dist-git submissions. |
-| Alpine | built by nfpm, `alpine/APKBUILD` | Uses the musl binaries and depends on `libstdc++` and `libgcc`. The single APKBUILD covers `x86_64` and `aarch64` with arch-specific sources. |
+| Alpine | built by nfpm, `alpine/APKBUILD` | Uses the musl binaries and depends on `libstdc++` and `libgcc`. The single APKBUILD covers `x86_64` and `aarch64`, selects the source with a `$CARCH` case, and uses `sha512sums` as aports expects. The nfpm-built `.apk` files are unsigned, so install them with `apk add --allow-untrusted` unless you sign them for a repository. |
 | Nix | `nix/default.nix` | Fetches the standalone binary for the current system from the release. On Linux, `autoPatchelfHook` rewrites the interpreter for NixOS and stripping is disabled so the Bun payload stays intact. |
 | Scoop | `scoop/marmotta.json` | Windows x64 and ARM64 executables. |
 | winget | `winget/*.yaml` | Portable installer for Windows x64 and ARM64. |

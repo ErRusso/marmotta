@@ -15,6 +15,9 @@ CLAUDE.md
 AGENTS.md
 .agents
 
+# Generated packaging fixtures
+lint/
+packaging-fixtures/
 
 # Ignore .githuman
 .githuman

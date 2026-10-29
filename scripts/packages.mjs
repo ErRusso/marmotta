@@ -102,8 +102,8 @@ export function hexToSri(hex) {
   return `sha256-${Buffer.from(hex, 'hex').toString('base64')}`;
 }
 
-async function sha256File(path) {
-  const hash = createHash('sha256');
+async function hashFile(path, algorithm) {
+  const hash = createHash(algorithm);
   await new Promise((resolvePromise, reject) => {
     const stream = createReadStream(path);
     stream.on('data', (chunk) => hash.update(chunk));
@@ -111,6 +111,32 @@ async function sha256File(path) {
     stream.on('end', resolvePromise);
   });
   return hash.digest('hex');
+}
+
+async function sha256File(path) {
+  return hashFile(path, 'sha256');
+}
+
+async function sha512Artifact(directory, name) {
+  try {
+    return await hashFile(resolve(directory, name), 'sha512');
+  } catch (error) {
+    throw new Error(
+      `Cannot compute the SHA-512 checksum for ${name}: ${error.message}. The Alpine APKBUILD requires the release assets in --artifacts.`,
+    );
+  }
+}
+
+// The release recipes download LICENSE from raw.githubusercontent.com at the release tag. Prefer the
+// committed blob for that tag so rendering an older version with --version cannot hash the wrong
+// file; fall back to the working tree when the tag is not available locally.
+function licenseAtTag(version) {
+  const result = spawnSync('git', ['show', `v${version}:LICENSE`], {
+    cwd: root,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.error || result.status !== 0 || !result.stdout || result.stdout.length === 0) return undefined;
+  return result.stdout.toString('utf8');
 }
 
 export async function checksumsFromArtifacts(directory, version) {
@@ -183,13 +209,18 @@ export async function renderPackages({
     context[`ASSET_${key}`] = name;
     context[`SHA256_${key}`] = sha256;
     context[`SRI_${key}`] = hexToSri(sha256);
+    // aports requires SHA-512 checksums; the musl assets are the only ones used by the APKBUILD.
+    if (asset.key.endsWith('-musl')) {
+      context[`SHA512_${key}`] = await sha512Artifact(artifactsDir, name);
+    }
   }
   if (missing.length > 0) {
     throw new Error(`Missing SHA-256 checksum${missing.length === 1 ? '' : 's'} for: ${missing.join(', ')}`);
   }
 
-  const license = (await readFile(resolve(root, 'LICENSE'), 'utf8')).replace(/\r\n/g, '\n');
+  const license = (licenseAtTag(version) ?? (await readFile(resolve(root, 'LICENSE'), 'utf8'))).replace(/\r\n/g, '\n');
   context.SHA256_LICENSE = createHash('sha256').update(license).digest('hex');
+  context.SHA512_LICENSE = createHash('sha512').update(license).digest('hex');
 
   await mkdir(resolve(outDir, 'recipes'), { recursive: true });
   // Write the normalized license so the hash above matches the file users download from
