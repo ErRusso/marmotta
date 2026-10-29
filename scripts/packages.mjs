@@ -12,7 +12,7 @@
 // Homebrew, Nix, Scoop, and winget recipes reference the matching macOS/Windows assets.
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { access, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createReadStream, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,13 +80,23 @@ const RPM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 export function formatChangelogDate(
   input = process.env.SOURCE_DATE_EPOCH ? Number(process.env.SOURCE_DATE_EPOCH) * 1000 : Date.now(),
 ) {
-  if (typeof input === 'string' && /^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4}$/.test(input)) {
-    return input;
+  let date;
+  if (input instanceof Date) {
+    date = input;
+  } else if (typeof input === 'string') {
+    const rpmMatch = /^([A-Z][a-z]{2}) ([A-Z][a-z]{2}) (\d{2}) (\d{4})$/.exec(input);
+    if (rpmMatch) {
+      const monthIndex = RPM_MONTHS.indexOf(rpmMatch[2]);
+      if (monthIndex === -1) throw new Error(`Invalid changelog date: ${input}`);
+      date = new Date(Date.UTC(Number(rpmMatch[4]), monthIndex, Number(rpmMatch[3])));
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+      date = new Date(`${input}T00:00:00Z`);
+    } else {
+      date = new Date(input);
+    }
+  } else {
+    date = new Date(input);
   }
-  const date =
-    input instanceof Date
-      ? input
-      : new Date(typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input) ? `${input}T00:00:00Z` : input);
   if (Number.isNaN(date.getTime())) {
     throw new Error(`Invalid changelog date: ${input}`);
   }
@@ -94,7 +104,14 @@ export function formatChangelogDate(
   const monthName = RPM_MONTHS[date.getUTCMonth()];
   const day = String(date.getUTCDate()).padStart(2, '0');
   const year = date.getUTCFullYear();
-  return `${dayName} ${monthName} ${day} ${year}`;
+  const formatted = `${dayName} ${monthName} ${day} ${year}`;
+  if (typeof input === 'string' && /^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4}$/.test(input) && formatted !== input) {
+    throw new Error(`Invalid changelog date: ${input} (expected ${formatted})`);
+  }
+  if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input) && date.toISOString().slice(0, 10) !== input) {
+    throw new Error(`Invalid changelog date: ${input}`);
+  }
+  return formatted;
 }
 
 export function assetName(version, asset) {
@@ -234,6 +251,7 @@ export async function renderPackages({
     const key = assetKey(asset);
     context[`ASSET_${key}`] = name;
     context[`SHA256_${key}`] = sha256;
+    context[`SHA256_UPPER_${key}`] = sha256.toUpperCase();
     context[`SRI_${key}`] = hexToSri(sha256);
     // aports requires SHA-512 checksums; the musl assets are the only ones used by the APKBUILD.
     if (asset.key.endsWith('-musl')) {
@@ -252,7 +270,8 @@ export async function renderPackages({
   // Write the normalized license so the hash above matches the file users download from
   // raw.githubusercontent (which always serves LF line endings), even on a CRLF checkout.
   await writeFile(resolve(outDir, 'LICENSE'), license);
-  await copyFile(resolve(root, 'packaging/README.md'), resolve(outDir, 'recipes/README.md'));
+  const readme = (await readFile(resolve(root, 'packaging/README.md'), 'utf8')).replace(/\r\n/g, '\n');
+  await writeFile(resolve(outDir, 'recipes/README.md'), readme);
 
   const recipes = ['README.md'];
   for (const [template, output] of RECIPES) {

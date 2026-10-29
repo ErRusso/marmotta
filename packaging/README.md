@@ -73,8 +73,8 @@ separate job after the binary release, so a packaging failure never blocks the e
 
 A second CI job renders the recipes from fixture checksums and runs each one through its consumer:
 `ruby -c` for the formula, `abuild validate` for the APKBUILD, `makepkg --printsrcinfo` for the
-PKGBUILD, `rpmspec -P` for the spec, and `nix-instantiate --parse` for the Nix expression. This
-catches recipe syntax that filling in the placeholders alone would not.
+PKGBUILD, `rpmspec -P` and `rpmspec -q` for the spec, and `nix-instantiate --parse` for the Nix
+expression. This catches recipe syntax that filling in the placeholders alone would not.
 
 ## Package-manager notes
 

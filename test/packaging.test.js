@@ -70,6 +70,9 @@ test('formatChangelogDate formats dates in the RPM changelog format', () => {
   assert.equal(formatChangelogDate('2026-01-02'), 'Fri Jan 02 2026');
   assert.equal(formatChangelogDate('Fri Jan 02 2026'), 'Fri Jan 02 2026');
   assert.equal(formatChangelogDate(new Date('2026-01-02T12:00:00Z')), 'Fri Jan 02 2026');
+  assert.throws(() => formatChangelogDate('Mon Jan 02 2026'), /Invalid changelog date/);
+  assert.throws(() => formatChangelogDate('Foo Bar 99 2026'), /Invalid changelog date/);
+  assert.throws(() => formatChangelogDate('2026-02-30'), /Invalid changelog date/);
   assert.throws(() => formatChangelogDate('not-a-date'), /Invalid changelog date/);
 });
 
@@ -178,8 +181,11 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
 
   const wingetInstaller = await readFile(join(out, 'recipes/winget/napi-bindings.marmotta.installer.yaml'), 'utf8');
   assert.match(wingetInstaller, /PackageVersion: "1\.2\.3"/);
-  assert.match(wingetInstaller, new RegExp(`InstallerSha256: ${manifest.assets['windows-x64'].sha256}`));
+  assert.match(wingetInstaller, new RegExp(`InstallerSha256: ${manifest.assets['windows-x64'].sha256.toUpperCase()}`));
   assert.doesNotMatch(wingetInstaller, /\{\{/);
+
+  const recipesReadme = await readFile(join(out, 'recipes/README.md'), 'utf8');
+  assert.doesNotMatch(recipesReadme, /\r\n/);
 
   const nfpm = await readFile(join(out, 'nfpm/nfpm-linux-amd64.yaml'), 'utf8');
   assert.match(nfpm, /arch: amd64/);
@@ -308,6 +314,7 @@ test('buildPackages builds and verifies native packages with nfpm', async (t) =>
 
   if (hasCommand('rpm')) {
     assert.match(spawnSync('rpm', ['-qpl', rpmPackage], { encoding: 'utf8' }).stdout, /\/usr\/share\/licenses\/marmotta\/LICENSE/);
+    assert.match(spawnSync('rpm', ['-qpR', rpmPackage], { encoding: 'utf8' }).stdout, /^glibc\b/m);
   } else if (hasCommand('bsdtar')) {
     assert.match(spawnSync('bsdtar', ['-tf', rpmPackage], { encoding: 'utf8' }).stdout, /usr\/share\/licenses\/marmotta\/LICENSE/);
   }

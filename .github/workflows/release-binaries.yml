@@ -231,7 +231,14 @@ jobs:
             --build
           (cd packages/artifacts && sha256sum marmotta* > SHA256SUMS.packages)
           cp packages/manifest.json packages/recipes/manifest.json
-          tar -czf "packages/marmotta-v${version}-packaging.tar.gz" -C packages/recipes .
+          GZIP=-n tar \
+            --sort=name \
+            --mtime="@${SOURCE_DATE_EPOCH}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -czf "packages/marmotta-v${version}-packaging.tar.gz" \
+            -C packages/recipes .
 
       - name: Attest package provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
