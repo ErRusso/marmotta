@@ -72,6 +72,31 @@ const RECIPES = [
   ['winget/locale.en-US.yaml', 'winget/napi-bindings.marmotta.locale.en-US.yaml'],
 ];
 
+const RPM_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const RPM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// RPM %changelog requires dates in the C-locale `ddd MMM dd yyyy` format (for example
+// `Fri Jan 02 2026`); rpmbuild rejects ISO `YYYY-MM-DD` dates.
+export function formatChangelogDate(
+  input = process.env.SOURCE_DATE_EPOCH ? Number(process.env.SOURCE_DATE_EPOCH) * 1000 : Date.now(),
+) {
+  if (typeof input === 'string' && /^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4}$/.test(input)) {
+    return input;
+  }
+  const date =
+    input instanceof Date
+      ? input
+      : new Date(typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input) ? `${input}T00:00:00Z` : input);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid changelog date: ${input}`);
+  }
+  const dayName = RPM_WEEKDAYS[date.getUTCDay()];
+  const monthName = RPM_MONTHS[date.getUTCMonth()];
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const year = date.getUTCFullYear();
+  return `${dayName} ${monthName} ${day} ${year}`;
+}
+
 export function assetName(version, asset) {
   return `marmotta-v${version}-${asset.key}${asset.ext}`;
 }
@@ -183,7 +208,7 @@ export async function renderPackages({
   checksums,
   outDir = resolve(root, 'packaging/out'),
   artifactsDir = resolve(root, 'dist'),
-  changelogDate = new Date().toISOString().slice(0, 10),
+  changelogDate = formatChangelogDate(),
 } = {}) {
   validateVersion(version);
   if (!checksums) throw new Error('renderPackages requires a checksum map');
@@ -191,9 +216,10 @@ export async function renderPackages({
   const context = {
     VERSION: version,
     REPOSITORY,
+    REPOSITORY_SLUG,
     MAINTAINER,
     DESCRIPTION,
-    CHANGELOG_DATE: changelogDate,
+    CHANGELOG_DATE: formatChangelogDate(changelogDate),
     LICENSE_URL: `https://raw.githubusercontent.com/${REPOSITORY_SLUG}/v${version}/LICENSE`,
   };
 
@@ -241,8 +267,8 @@ export async function renderPackages({
     await renderTemplate('nfpm/nfpm.yaml', resolve(outDir, output), {
       ...context,
       NFPM_ARCH: config.arch,
-      BINARY: resolve(artifactsDir, context[`ASSET_${key}`]),
-      LICENSE_FILE: resolve(outDir, 'LICENSE'),
+      BINARY: JSON.stringify(resolve(artifactsDir, context[`ASSET_${key}`])),
+      LICENSE_FILE: JSON.stringify(resolve(outDir, 'LICENSE')),
     });
   }
   for (const target of PACKAGE_TARGETS) {
@@ -526,7 +552,7 @@ async function main() {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
     console.error(`packages: ${error.message}`);
     process.exit(1);

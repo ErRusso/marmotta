@@ -18,7 +18,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends rpm zstd
+        sudo apt-get install -y --no-install-recommends libarchive-tools rpm zstd
 
     - name: Install nfpm
       shell: bash

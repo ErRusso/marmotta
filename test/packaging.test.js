@@ -11,6 +11,7 @@ import {
   assetName,
   buildPackages,
   checksumsFromArtifacts,
+  formatChangelogDate,
   hexToSri,
   parseChecksums,
   readRpmMetadata,
@@ -65,6 +66,13 @@ test('hexToSri converts a SHA-256 digest to the Nix SRI format', () => {
   assert.throws(() => hexToSri('not-a-hash'), /Invalid SHA-256 hash/);
 });
 
+test('formatChangelogDate formats dates in the RPM changelog format', () => {
+  assert.equal(formatChangelogDate('2026-01-02'), 'Fri Jan 02 2026');
+  assert.equal(formatChangelogDate('Fri Jan 02 2026'), 'Fri Jan 02 2026');
+  assert.equal(formatChangelogDate(new Date('2026-01-02T12:00:00Z')), 'Fri Jan 02 2026');
+  assert.throws(() => formatChangelogDate('not-a-date'), /Invalid changelog date/);
+});
+
 test('renderPackages rejects pre-release versions that package managers rewrite', async (t) => {
   const { directory, artifacts, out, checksums } = await fixture();
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -108,6 +116,8 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
 
   const homebrew = await readFile(join(out, 'recipes/homebrew/marmotta.rb'), 'utf8');
   assert.match(homebrew, /class Marmotta < Formula/);
+  assert.match(homebrew, /on_arm do/);
+  assert.match(homebrew, /on_intel do/);
   assert.match(homebrew, /marmotta-v1\.2\.3-darwin-arm64/);
   assert.match(homebrew, new RegExp(manifest.assets['darwin-arm64'].sha256));
   assert.match(homebrew, /marmotta-v1\.2\.3-linux-x64/);
@@ -117,6 +127,7 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   assert.match(aur, /pkgname=marmotta-bin/);
   assert.match(aur, /source_x86_64=/);
   assert.match(aur, /source_aarch64=/);
+  assert.match(aur, /v\$\{pkgver\}\/LICENSE/);
   assert.match(aur, new RegExp(manifest.assets['linux-x64'].sha256));
   assert.match(aur, new RegExp(manifest.assets['linux-arm64'].sha256));
   assert.match(aur, /depends=\('glibc'\)/);
@@ -126,7 +137,7 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
 
   const alpine = await readFile(join(out, 'recipes/alpine/APKBUILD'), 'utf8');
   assert.match(alpine, /arch="x86_64 aarch64"/);
-  assert.match(alpine, /options="!strip"/);
+  assert.match(alpine, /options="!check !strip"/);
   assert.match(alpine, /case "\$CARCH" in/);
   assert.doesNotMatch(alpine, /source_x86_64|sha256sums/);
   assert.doesNotMatch(alpine, /\{\{/);
@@ -140,6 +151,9 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   const rpm = await readFile(join(out, 'recipes/rpm/marmotta.spec'), 'utf8');
   assert.match(rpm, /^%global __strip \/bin\/true$/m);
   assert.match(rpm, /^%global debug_package %\{nil\}$/m);
+  assert.match(rpm, /^Source0:\s+.*marmotta-v1\.2\.3-linux-x64$/m);
+  assert.match(rpm, /^Source1:\s+.*marmotta-v1\.2\.3-linux-arm64$/m);
+  assert.match(rpm, /^\* Fri Jan 02 2026 /m);
   assert.doesNotMatch(rpm, /\{\{/);
 
   const nix = await readFile(join(out, 'recipes/nix/default.nix'), 'utf8');
@@ -156,6 +170,11 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
   assert.equal(scoop.architecture['64bit'].bin, 'marmotta.exe');
   assert.match(scoop.architecture['64bit'].url, /#\/marmotta\.exe$/);
   assert.match(scoop.autoupdate.architecture.arm64.url, /#\/marmotta\.exe$/);
+  assert.equal(scoop.autoupdate.hash.url, '$baseurl/SHA256SUMS');
+
+  const wingetVersion = await readFile(join(out, 'recipes/winget/napi-bindings.marmotta.yaml'), 'utf8');
+  assert.match(wingetVersion, /^# yaml-language-server: \$schema=/);
+  assert.doesNotMatch(wingetVersion, /\{\{/);
 
   const wingetInstaller = await readFile(join(out, 'recipes/winget/napi-bindings.marmotta.installer.yaml'), 'utf8');
   assert.match(wingetInstaller, /PackageVersion: "1\.2\.3"/);
@@ -164,7 +183,7 @@ test('renderPackages writes every recipe with checksums and no placeholders', as
 
   const nfpm = await readFile(join(out, 'nfpm/nfpm-linux-amd64.yaml'), 'utf8');
   assert.match(nfpm, /arch: amd64/);
-  assert.match(nfpm, new RegExp(`src: .*${assetName(version, { key: 'linux-x64', ext: '' })}`));
+  assert.match(nfpm, new RegExp(`src: ".*${assetName(version, { key: 'linux-x64', ext: '' })}"`));
   assert.match(nfpm, /dst: \/usr\/share\/doc\/marmotta\/copyright\n    packager: deb/);
   assert.match(nfpm, /dst: \/usr\/share\/licenses\/marmotta\/LICENSE\n    packager: rpm/);
   assert.match(nfpm, /dst: \/usr\/share\/licenses\/marmotta\/LICENSE\n    packager: apk/);
@@ -274,19 +293,22 @@ test('buildPackages builds and verifies native packages with nfpm', async (t) =>
   }).stdout;
   assert.match(apkInfo, /depend = libstdc\+\+/);
 
-  if (hasCommand('bsdtar')) {
-    const archPackage = join(out, 'artifacts', `marmotta-${version}-1-x86_64.pkg.tar.zst`);
-    const archInfo = spawnSync('bsdtar', ['-xOf', archPackage, '.PKGINFO'], { encoding: 'utf8' }).stdout;
-    assert.match(archInfo, /depend = glibc/);
-    assert.match(spawnSync('bsdtar', ['-tf', archPackage], { encoding: 'utf8' }).stdout, /usr\/share\/licenses\/marmotta\/LICENSE/);
-  }
+  const archPackage = join(out, 'artifacts', `marmotta-${version}-1-x86_64.pkg.tar.zst`);
+  const [archTool, archListArgs, archInfoArgs] = hasCommand('bsdtar')
+    ? ['bsdtar', ['-tf', archPackage], ['-xOf', archPackage, '.PKGINFO']]
+    : ['tar', ['--zstd', '-tf', archPackage], ['--zstd', '-xOf', archPackage, '.PKGINFO']];
+  const archInfo = spawnSync(archTool, archInfoArgs, { encoding: 'utf8' }).stdout;
+  assert.match(archInfo, /depend = glibc/);
+  assert.match(spawnSync(archTool, archListArgs, { encoding: 'utf8' }).stdout, /usr\/share\/licenses\/marmotta\/LICENSE/);
 
   const rpmPackage = join(out, 'artifacts', `marmotta-${version}-1.x86_64.rpm`);
   const rpmMetadata = readRpmMetadata(await readFile(rpmPackage));
   assert.deepEqual(rpmMetadata, { name: 'marmotta', version, release: '1', arch: 'x86_64' });
   assert.throws(() => readRpmMetadata(Buffer.alloc(64)), /Truncated RPM header/);
 
-  if (hasCommand('bsdtar')) {
+  if (hasCommand('rpm')) {
+    assert.match(spawnSync('rpm', ['-qpl', rpmPackage], { encoding: 'utf8' }).stdout, /\/usr\/share\/licenses\/marmotta\/LICENSE/);
+  } else if (hasCommand('bsdtar')) {
     assert.match(spawnSync('bsdtar', ['-tf', rpmPackage], { encoding: 'utf8' }).stdout, /usr\/share\/licenses\/marmotta\/LICENSE/);
   }
 });

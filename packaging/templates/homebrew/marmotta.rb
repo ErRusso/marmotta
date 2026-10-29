@@ -5,21 +5,23 @@ class Marmotta < Formula
   license "Apache-2.0"
 
   on_macos do
-    if Hardware::CPU.arm?
-      url "{{REPOSITORY}}/releases/download/v#{version}/{{ASSET_DARWIN_ARM64}}", using: :nounzip
+    on_arm do
+      url "{{REPOSITORY}}/releases/download/v{{VERSION}}/{{ASSET_DARWIN_ARM64}}", using: :nounzip
       sha256 "{{SHA256_DARWIN_ARM64}}"
-    else
-      url "{{REPOSITORY}}/releases/download/v#{version}/{{ASSET_DARWIN_X64}}", using: :nounzip
+    end
+    on_intel do
+      url "{{REPOSITORY}}/releases/download/v{{VERSION}}/{{ASSET_DARWIN_X64}}", using: :nounzip
       sha256 "{{SHA256_DARWIN_X64}}"
     end
   end
 
   on_linux do
-    if Hardware::CPU.arm?
-      url "{{REPOSITORY}}/releases/download/v#{version}/{{ASSET_LINUX_ARM64}}", using: :nounzip
+    on_arm do
+      url "{{REPOSITORY}}/releases/download/v{{VERSION}}/{{ASSET_LINUX_ARM64}}", using: :nounzip
       sha256 "{{SHA256_LINUX_ARM64}}"
-    else
-      url "{{REPOSITORY}}/releases/download/v#{version}/{{ASSET_LINUX_X64}}", using: :nounzip
+    end
+    on_intel do
+      url "{{REPOSITORY}}/releases/download/v{{VERSION}}/{{ASSET_LINUX_X64}}", using: :nounzip
       sha256 "{{SHA256_LINUX_X64}}"
     end
   end
@@ -33,7 +35,6 @@ class Marmotta < Formula
     binary = Dir["marmotta-v*"].find { |path| File.file?(path) }
     raise "marmotta executable not found in the downloaded asset" if binary.nil?
 
-    chmod 0755, binary
     bin.install binary => "marmotta"
   end
 

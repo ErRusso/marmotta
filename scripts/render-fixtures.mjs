@@ -17,5 +17,5 @@ for (const asset of ASSETS) {
 }
 
 const checksums = await checksumsFromArtifacts(artifactsDir, version);
-await renderPackages({ version, checksums, outDir, artifactsDir, changelogDate: '2026-01-02' });
+await renderPackages({ version, checksums, outDir, artifactsDir, changelogDate: 'Fri Jan 02 2026' });
 console.log(`Rendered fixture recipes in ${outDir}`);

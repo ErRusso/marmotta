@@ -27,6 +27,9 @@
       "arm64": {
         "url": "{{REPOSITORY}}/releases/download/v$version/marmotta-v$version-windows-arm64.exe#/marmotta.exe"
       }
+    },
+    "hash": {
+      "url": "$baseurl/SHA256SUMS"
     }
   }
 }

@@ -8,7 +8,7 @@ arch="x86_64 aarch64"
 license="Apache-2.0"
 depends="libstdc++ libgcc"
 # The executable is a Bun single-file binary with an appended payload; abuild strips by default.
-options="!strip"
+options="!check !strip"
 
 # abuild has no per-architecture source_$CARCH variables, so select the asset and its checksums here.
 case "$CARCH" in

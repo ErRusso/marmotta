@@ -118,7 +118,7 @@ jobs:
             -v "$PWD/lint/recipes/rpm:/work:ro" \
             -w /work \
             fedora:latest \
-            bash -euc 'dnf install -y --quiet rpm-build >/dev/null && rpmspec -P marmotta.spec >/dev/null'
+            bash -euc 'dnf install -y --quiet rpm-build >/dev/null && rpmspec -P marmotta.spec >/dev/null && rpmspec -q --changelog marmotta.spec >/dev/null'
 
       - name: Lint Nix expression
         run: |
