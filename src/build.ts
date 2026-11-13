@@ -101,6 +101,8 @@ export async function build(options: BuildOptions): Promise<void> {
 }
 
 export async function clean(options: BuildOptions): Promise<void> {
-  const config = await loadProject(options.directory, { target: options.target });
+  // Cleaning only needs the addon name and output directory, so it must not fail just because
+  // the project has no sources or a configured source has been moved or deleted.
+  const config = await loadProject(options.directory, { target: options.target, requireSources: false });
   await compile(config, options, true);
 }

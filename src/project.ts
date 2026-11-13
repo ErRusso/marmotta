@@ -12,6 +12,7 @@ import {
   ProjectSourceReadFailedError,
   ProjectSourcesNotFoundError,
 } from './errors.js';
+import { isStableVersion } from './toolchain.js';
 
 export type ProjectConfig = {
   name: string;
@@ -29,6 +30,16 @@ export type ProjectConfigContext = {
   target?: string;
   platform: NodeJS.Platform;
   arch: string;
+};
+
+export type LoadProjectOptions = {
+  target?: string;
+  /**
+   * Defaults to true. When false, sources are neither discovered nor validated: `sources` only
+   * contains the configured entries resolved to absolute paths (possibly missing), or [] when
+   * none are configured. Intended for operations that only need `name` and `outputDir`, such as clean.
+   */
+  requireSources?: boolean;
 };
 
 type PackageJson = { name?: unknown };
@@ -187,10 +198,11 @@ async function loadConfigInput(
 
 export async function loadProject(
   directory: string,
-  options: { target?: string } = {},
+  options: LoadProjectOptions = {},
 ): Promise<ProjectConfig> {
-  const input = await loadConfigInput(directory, {
-    directory,
+  const projectDirectory = resolve(directory);
+  const input = await loadConfigInput(projectDirectory, {
+    directory: projectDirectory,
     target: options.target,
     platform: process.platform,
     arch: process.arch,
@@ -201,16 +213,33 @@ export async function loadProject(
   const cxxFlags = stringArray(input.cxxFlags, 'cxxFlags');
   const linkerFlags = stringArray(input.linkerFlags, 'linkerFlags');
   if (input.zigVersion !== undefined
-    && (typeof input.zigVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(input.zigVersion))) {
+    && (typeof input.zigVersion !== 'string' || !isStableVersion(input.zigVersion))) {
     throw new ProjectConfigInvalidError('The "zigVersion" property must be an exact stable version (for example "0.14.1").');
   }
   const name = typeof input.name === 'string' && input.name.length > 0
     ? input.name.replace(/[^a-zA-Z0-9_-]/g, '_')
-    : await projectName(directory);
+    : await projectName(projectDirectory);
   if (input.outputDir !== undefined && (typeof input.outputDir !== 'string' || input.outputDir.length === 0)) {
     throw new ProjectConfigInvalidError('The "outputDir" property must be a non-empty string.');
   }
   const outputDir = typeof input.outputDir === 'string' ? input.outputDir : '.';
+  const discoveredSources = options.requireSources === false
+    ? sources.map((source) => resolve(projectDirectory, source))
+    : await discoverSources(projectDirectory, sources);
+
+  return {
+    name,
+    sources: discoveredSources,
+    includeDirs: includeDirs.map((item) => resolve(projectDirectory, item)),
+    cFlags,
+    cxxFlags,
+    linkerFlags,
+    outputDir: resolve(projectDirectory, outputDir),
+    ...(typeof input.zigVersion === 'string' ? { zigVersion: input.zigVersion } : {}),
+  };
+}
+
+async function discoverSources(directory: string, sources: string[]): Promise<string[]> {
   let discoveredSources: string[];
   try {
     discoveredSources = sources.length > 0
@@ -234,14 +263,5 @@ export async function loadProject(
     if (!sourceStats.isFile()) throw new ProjectSourceInvalidError(source);
   }
 
-  return {
-    name,
-    sources: discoveredSources,
-    includeDirs: includeDirs.map((item) => resolve(directory, item)),
-    cFlags,
-    cxxFlags,
-    linkerFlags,
-    outputDir: resolve(directory, outputDir),
-    ...(typeof input.zigVersion === 'string' ? { zigVersion: input.zigVersion } : {}),
-  };
+  return discoveredSources;
 }

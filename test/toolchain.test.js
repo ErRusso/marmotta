@@ -16,7 +16,10 @@ const archiveExtension = process.platform === 'win32' ? 'zip' : 'tar.xz';
 const executableName = process.platform === 'win32' ? 'zig.exe' : 'zig';
 const tarAvailable = spawnSync('tar', ['--version'], { stdio: 'ignore' }).status === 0;
 
-async function withToolchainEnvironment(run) {
+// Runs `run` in a child-friendly environment with a fake "zig" on PATH (a copy of node.js that
+// answers `zig version`). Pass `{ systemZig: false }` to answer `zig version` with failure instead,
+// so an unpinned ensureZig has to fall back to managed versions in MARMOTTA_HOME.
+async function withToolchainEnvironment(run, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'marmotta-toolchain-test-'));
   const home = join(directory, 'home');
   const bin = join(directory, 'bin');
@@ -26,9 +29,10 @@ async function withToolchainEnvironment(run) {
     await mkdir(home);
     await mkdir(bin);
     // Node.js resolves the script argument, so `zig version` arrives as an absolute path ending in "version".
+    const systemZigStatus = options.systemZig === false ? 1 : 0;
     await writeFile(preload, `
       import { basename } from 'node:path';
-      if (process.argv[1] && basename(process.argv[1]) === 'version') process.exit(0);
+      if (process.argv[1] && basename(process.argv[1]) === 'version') process.exit(${systemZigStatus});
     `);
 
     const pathZig = join(bin, executableName);
@@ -125,6 +129,76 @@ test('uses the exact managed Zig version instead of a different Zig on PATH', as
     assert.equal(result.executable, join(localToolchain, executableName));
     assert.deepEqual(result.urls, []);
   });
+});
+
+test('selects the newest managed Zig version instead of the first directory read', async () => {
+  await withToolchainEnvironment(async ({ home, env }) => {
+    const zigRoot = join(home, '.marmotta', 'toolchains', 'zig');
+    const versions = ['0.9.9', '0.10.0', '0.14.1'];
+    // Oldest first, which is also the order readdir() typically reports on the test file system.
+    for (const version of versions) {
+      await mkdir(join(zigRoot, version), { recursive: true });
+      await writeFile(join(zigRoot, version, executableName), '');
+    }
+
+    const result = runToolchain(env, `
+      const zig = await toolchain.ensureZig();
+      return { executable: zig.executable, versions: await toolchain.listZigVersions() };
+    `);
+
+    assert.equal(result.executable, join(zigRoot, '0.14.1', executableName));
+    assert.deepEqual(result.versions, versions);
+  }, { systemZig: false });
+});
+
+test('skips a newer managed Zig version that has no runnable Zig executable', async () => {
+  await withToolchainEnvironment(async ({ home, env }) => {
+    const zigRoot = join(home, '.marmotta', 'toolchains', 'zig');
+    await mkdir(join(zigRoot, '0.14.1'), { recursive: true });
+    await writeFile(join(zigRoot, '0.14.1', executableName), '');
+    // A leftover of an interrupted installation has the version name but no executable.
+    await mkdir(join(zigRoot, newerVersion), { recursive: true });
+
+    const result = runToolchain(env, 'return { executable: (await toolchain.ensureZig()).executable };');
+
+    assert.equal(result.executable, join(zigRoot, '0.14.1', executableName));
+  }, { systemZig: false });
+});
+
+test('ignores a non-version directory left behind in the managed Zig root', async () => {
+  await withToolchainEnvironment(async ({ home, env }) => {
+    const zigRoot = join(home, '.marmotta', 'toolchains', 'zig');
+    await mkdir(join(zigRoot, '.install-junk'), { recursive: true });
+    await writeFile(join(zigRoot, '.install-junk', executableName), '');
+
+    // Nothing but the leftover is installed, so Zig must be downloaded rather than taken from .install-junk.
+    const result = runEnsureZig({ env, index: {}, archivePath: null });
+
+    assert.equal(result.code, 'ZIG_INSTALL_FAILED');
+    assert.match(result.message, /No stable Zig release found/);
+    assert.deepEqual(result.urls, ['https://ziglang.org/download/index.json']);
+    assert.deepEqual(runToolchain(env, 'return { versions: await toolchain.listZigVersions() };'), { versions: [] });
+  }, { systemZig: false });
+});
+
+test('listZigVersions and ensureZig agree on which directories are managed versions', async () => {
+  await withToolchainEnvironment(async ({ home, env }) => {
+    const zigRoot = join(home, '.marmotta', 'toolchains', 'zig');
+    const versions = ['0.9.9', '0.14.1'];
+    const ignored = ['.install-junk', '0.15.0-rc1', 'nightly'];
+    for (const name of [...versions, ...ignored]) {
+      await mkdir(join(zigRoot, name), { recursive: true });
+      await writeFile(join(zigRoot, name, executableName), '');
+    }
+
+    const result = runToolchain(env, `
+      const zig = await toolchain.ensureZig();
+      return { executable: zig.executable, versions: await toolchain.listZigVersions() };
+    `);
+
+    assert.deepEqual(result.versions, versions);
+    assert.equal(result.executable, join(zigRoot, '0.14.1', executableName));
+  }, { systemZig: false });
 });
 
 test('downloads the exact pinned Zig release rather than the latest indexed version', {

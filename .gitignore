@@ -19,6 +19,9 @@ AGENTS.md
 lint/
 packaging-fixtures/
 
+# In-repo test projects created by test/project.test.js relative-directory tests
+.marmotta-test-*/
+
 # Ignore .githuman
 .githuman
 

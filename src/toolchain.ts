@@ -183,6 +183,14 @@ function platformKey(): string {
   return `${arch}-${platform}`;
 }
 
+// An exact stable version, the only shape Marmotta manages. Shared by discovery and listing so the
+// two always agree on what counts as a managed version.
+const stableVersionPattern = /^\d+\.\d+\.\d+$/;
+
+export function isStableVersion(name: string): boolean {
+  return stableVersionPattern.test(name);
+}
+
 function compareVersions(left: string, right: string): number {
   const a = left.split('.').map(Number);
   const b = right.split('.').map(Number);
@@ -195,16 +203,25 @@ function compareVersions(left: string, right: string): number {
 
 async function findLocalZig(root: string, version?: string): Promise<ZigExecutable | undefined> {
   try {
-    const versions = await readdir(root, { withFileTypes: true });
-    for (const entry of versions) {
-      if (!entry.isDirectory() || (version !== undefined && entry.name !== version)) continue;
-      const versionDir = join(root, entry.name);
+    // Unpinned, only stable version directories count and the newest one is tried first: readdir order is
+    // arbitrary, and ignoring incomplete or unrelated directories keeps the choice deterministic.
+    const versions = (await readdir(root, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && (version === undefined
+        ? isStableVersion(entry.name)
+        : entry.name === version))
+      .map((entry) => entry.name)
+      .sort((left, right) => compareVersions(right, left));
+    for (const name of versions) {
+      const versionDir = join(root, name);
       const entries = await readdir(versionDir, { withFileTypes: true });
       for (const entry of entries) {
         const candidateDir = entry.isDirectory() ? join(versionDir, entry.name) : versionDir;
         for (const executable of ['zig', 'zig.exe']) {
           const candidate = join(candidateDir, executable);
           try {
+            // The candidate is checked only for existence (F_OK), not executability: archives carry the
+            // executable bit so a completed install is runnable, and a version directory whose zig file
+            // merely lacks +x is treated as present here, matching how downloads verify eligibility.
             await access(candidate);
             return { executable: candidate, args: [] };
           } catch (error) {
@@ -247,7 +264,7 @@ async function downloadZig(requestedVersion?: string): Promise<{ version: string
     throw new ZigInstallFailedError('Invalid Zig download index.');
   }
 
-  const versions = Object.keys(index).filter((version) => /^\d+\.\d+\.\d+$/.test(version)).sort(compareVersions);
+  const versions = Object.keys(index).filter((version) => isStableVersion(version)).sort(compareVersions);
   const version = requestedVersion ?? versions.at(-1);
   if (!version) throw new ZigInstallFailedError('No stable Zig release found.');
   if (!versions.includes(version)) {
@@ -395,7 +412,7 @@ async function configuredZig(directory: string): Promise<ZigExecutable> {
 // createBuildDirectory. Finding an existing Zig writes nothing, so it also works with a read-only home.
 export async function ensureZig(version?: string): Promise<ZigCommand> {
   if (version !== undefined) {
-    if (!/^\d+\.\d+\.\d+$/.test(version)) throw new ZigVersionInvalidError(version);
+    if (!isStableVersion(version)) throw new ZigVersionInvalidError(version);
   }
   const home = marmottaHome();
   const zigDirectory = configuredZigDirectory();
@@ -415,7 +432,7 @@ export async function listZigVersions(): Promise<string[]> {
   logger.debug(`Reading Zig versions in ${root}`);
   try {
     return (await readdir(root, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .filter((entry) => entry.isDirectory() && isStableVersion(entry.name))
       .map((entry) => entry.name)
       .sort(compareVersions);
   } catch (error) {
@@ -425,7 +442,7 @@ export async function listZigVersions(): Promise<string[]> {
 }
 
 export async function removeZigVersion(version: string): Promise<void> {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new ZigVersionInvalidError(version);
+  if (!isStableVersion(version)) throw new ZigVersionInvalidError(version);
   const root = zigRoot(marmottaHome());
   try {
     await rm(join(root, version), { recursive: true, force: true });
